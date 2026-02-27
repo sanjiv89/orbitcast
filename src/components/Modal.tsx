@@ -5,9 +5,12 @@ interface Props {
   onClose: () => void
   children: React.ReactNode
   maxWidth?: number
+  isOpen?: boolean
 }
 
-export function Modal({ title, onClose, children, maxWidth = 480 }: Props) {
+export function Modal({ title, onClose, children, maxWidth = 480, isOpen }: Props) {
+  // If isOpen is explicitly passed as false, don't render
+  if (isOpen === false) return null
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
