@@ -23,28 +23,28 @@ export const seedPeople: Person[] = [
 export const seedProjects: Project[] = [
   {
     id: 'proj1', name: 'Platform Relaunch', customer_id: 'c1',
-    start_month: '2025-01', end_month: '2025-06',
+    start_month: '2025-01-06', end_month: '2025-06-27',
     budget_dollars: 180000, status: 'active', billable: true,
   },
   {
     id: 'proj2', name: 'Patient Portal v2', customer_id: 'c2',
-    start_month: '2025-02', end_month: '2025-07',
+    start_month: '2025-02-03', end_month: '2025-07-31',
     budget_dollars: 120000, status: 'active', billable: true,
   },
   {
     id: 'proj3', name: 'Design System', customer_id: 'c3',
-    start_month: '2025-03', end_month: '2025-08',
+    start_month: '2025-03-10', end_month: '2025-08-29',
     budget_dollars: 75000, status: 'tentative', billable: true,
   },
 ]
 
 export const seedPhases: Phase[] = [
-  { id: 'ph1', project_id: 'proj1', name: 'Discovery',    start_month: '2025-01', end_month: '2025-02' },
-  { id: 'ph2', project_id: 'proj1', name: 'Build',        start_month: '2025-03', end_month: '2025-06' },
-  { id: 'ph3', project_id: 'proj2', name: 'Research',     start_month: '2025-02', end_month: '2025-03' },
-  { id: 'ph4', project_id: 'proj2', name: 'Development',  start_month: '2025-04', end_month: '2025-07' },
-  { id: 'ph5', project_id: 'proj3', name: 'Foundations',  start_month: '2025-03', end_month: '2025-05' },
-  { id: 'ph6', project_id: 'proj3', name: 'Components',   start_month: '2025-06', end_month: '2025-08' },
+  { id: 'ph1', project_id: 'proj1', name: 'Discovery',    start_month: '2025-01-06', end_month: '2025-02-28' },
+  { id: 'ph2', project_id: 'proj1', name: 'Build',        start_month: '2025-03-03', end_month: '2025-06-27' },
+  { id: 'ph3', project_id: 'proj2', name: 'Research',     start_month: '2025-02-03', end_month: '2025-03-28' },
+  { id: 'ph4', project_id: 'proj2', name: 'Development',  start_month: '2025-04-01', end_month: '2025-07-31' },
+  { id: 'ph5', project_id: 'proj3', name: 'Foundations',  start_month: '2025-03-10', end_month: '2025-05-30' },
+  { id: 'ph6', project_id: 'proj3', name: 'Components',   start_month: '2025-06-02', end_month: '2025-08-29' },
 ]
 
 export const seedAllocations: Allocation[] = [

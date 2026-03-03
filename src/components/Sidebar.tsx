@@ -31,7 +31,7 @@ export function Sidebar({ active, onChange }: Props) {
       {/* Logo */}
       <div style={{ padding: '0 20px 24px', borderBottom: '1px solid #1E1E22' }}>
         <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 20, fontWeight: 800, color: '#C8F041', letterSpacing: '-0.5px' }}>
-          Orbitcast
+          Crewcast
         </div>
         <div style={{ fontSize: 11, color: '#55555F', marginTop: 2 }}>Resource Forecasting</div>
       </div>

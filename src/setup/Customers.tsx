@@ -69,25 +69,36 @@ export function Customers() {
             <th style={{ padding: '12px', textAlign: 'left', color: TEXT_SEC }}></th>
             <th style={{ padding: '12px', textAlign: 'left', color: TEXT_SEC }}>Name</th>
             <th style={{ padding: '12px', textAlign: 'left', color: TEXT_SEC }}>Projects</th>
+            <th style={{ padding: '12px', textAlign: 'left', color: TEXT_SEC }}>Total Budget</th>
             <th style={{ padding: '12px', textAlign: 'left', color: TEXT_SEC }}>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {customers.map(customer => (
-            <tr key={customer.id} style={{ borderBottom: `1px solid ${BORDER}` }}>
-              <td style={{ padding: '12px' }}>
-                <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: customer.color }}></div>
-              </td>
-              <td style={{ padding: '12px', color: TEXT_PRIMARY }}>{customer.name}</td>
-              <td style={{ padding: '12px', color: TEXT_SEC }}>
-                {projects.filter(p => p.customer_id === customer.id).length}
-              </td>
-              <td style={{ padding: '12px' }}>
-                <button className="btn-ghost" onClick={() => openEditModal(customer)}>Edit</button>
-                <button className="btn-danger" onClick={() => handleDelete(customer.id)} style={{ marginLeft: '8px' }}>Delete</button>
-              </td>
-            </tr>
-          ))}
+          {customers.map(customer => {
+            const customerProjects = projects.filter(p => p.customer_id === customer.id)
+            const totalBudget = customerProjects.reduce((sum, p) => sum + p.budget_dollars, 0)
+            return (
+              <tr key={customer.id} style={{ borderBottom: `1px solid ${BORDER}` }}>
+                <td style={{ padding: '12px' }}>
+                  <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: customer.color }}></div>
+                </td>
+                <td style={{ padding: '12px', color: TEXT_PRIMARY }}>{customer.name}</td>
+                <td style={{ padding: '12px', color: TEXT_SEC }}>
+                  {customerProjects.length} project{customerProjects.length !== 1 ? 's' : ''}
+                </td>
+                <td style={{ padding: '12px', color: TEXT_PRIMARY, fontWeight: 600 }}>
+                  {totalBudget > 0
+                    ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(totalBudget)
+                    : <span style={{ color: TEXT_SEC }}>—</span>
+                  }
+                </td>
+                <td style={{ padding: '12px' }}>
+                  <button className="btn-ghost" onClick={() => openEditModal(customer)}>Edit</button>
+                  <button className="btn-danger" onClick={() => handleDelete(customer.id)} style={{ marginLeft: '8px' }}>Delete</button>
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
 

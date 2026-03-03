@@ -15,8 +15,12 @@ const GREEN='#4ADE80'
 const AMBER='#FBBF24'
 const RED='#F87171'
 
-const MONTHS = ['2025-01','2025-02','2025-03','2025-04','2025-05','2025-06']
-const fmtMonth = (m: string) => new Date(m + '-15').toLocaleDateString('en-US',{month:'short',year:'2-digit'})
+const fmtDate = (d: string) => {
+  if (!d) return '—'
+  // Handle both YYYY-MM-DD and legacy YYYY-MM formats
+  const normalized = d.length === 7 ? d + '-15' : d
+  return new Date(normalized + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
 const fmtMoney = (n: number) => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n)
 
 export function Projects() {
@@ -50,8 +54,8 @@ export function Projects() {
     setEditingProject(null)
     setProjectName('')
     setProjectCustomerId(customers[0]?.id || '')
-    setProjectStartMonth(MONTHS[0])
-    setProjectEndMonth(MONTHS[0])
+    setProjectStartMonth(new Date().toISOString().split('T')[0])
+    setProjectEndMonth(new Date().toISOString().split('T')[0])
     setProjectBudget(0)
     setProjectStatus('active')
     setProjectBillable(true)
@@ -88,8 +92,8 @@ export function Projects() {
   const openAddPhaseModal = (projectId: string) => {
     setEditingPhase(null)
     setPhaseName('')
-    setPhaseStartMonth(MONTHS[0])
-    setPhaseEndMonth(MONTHS[0])
+    setPhaseStartMonth(new Date().toISOString().split('T')[0])
+    setPhaseEndMonth(new Date().toISOString().split('T')[0])
     setCurrentProjectIdForPhase(projectId)
     setIsPhaseModalOpen(true)
   }
@@ -167,8 +171,8 @@ export function Projects() {
                     <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: customer?.color, marginRight: '8px' }}></div>
                     {customer?.name}
                   </td>
-                  <td style={{ padding: '12px', color: TEXT_SEC }}>{fmtMonth(project.start_month)}</td>
-                  <td style={{ padding: '12px', color: TEXT_SEC }}>{fmtMonth(project.end_month)}</td>
+                  <td style={{ padding: '12px', color: TEXT_SEC }}>{fmtDate(project.start_month)}</td>
+                  <td style={{ padding: '12px', color: TEXT_SEC }}>{fmtDate(project.end_month)}</td>
                   <td style={{ padding: '12px', color: TEXT_SEC }}>{fmtMoney(project.budget_dollars)}</td>
                   <td style={{ padding: '12px' }}>
                     <span className={`badge status-${project.status}`}>{project.status}</span>
@@ -190,8 +194,8 @@ export function Projects() {
                     <td style={{ padding: '12px', borderLeft: `4px solid ${customer?.color}`, marginLeft: '20px' }}></td>
                     <td style={{ padding: '12px', color: TEXT_PRIMARY, paddingLeft: '32px' }}>{phase.name}</td>
                     <td style={{ padding: '12px' }}></td>
-                    <td style={{ padding: '12px', color: TEXT_SEC }}>{fmtMonth(phase.start_month)}</td>
-                    <td style={{ padding: '12px', color: TEXT_SEC }}>{fmtMonth(phase.end_month)}</td>
+                    <td style={{ padding: '12px', color: TEXT_SEC }}>{fmtDate(phase.start_month)}</td>
+                    <td style={{ padding: '12px', color: TEXT_SEC }}>{fmtDate(phase.end_month)}</td>
                     <td style={{ padding: '12px' }}></td>
                     <td style={{ padding: '12px' }}></td>
                     <td style={{ padding: '12px' }}></td>
@@ -219,10 +223,10 @@ export function Projects() {
           </select>
         </FormRow>
         <FormRow label="Start Month">
-          <input type="month" value={projectStartMonth} onChange={(e) => setProjectStartMonth(e.target.value)} style={{ width: '100%', padding: '8px', background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }} />
+          <input type="date" value={projectStartMonth} onChange={(e) => setProjectStartMonth(e.target.value)} style={{ width: '100%', padding: '8px', background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }} />
         </FormRow>
         <FormRow label="End Month">
-          <input type="month" value={projectEndMonth} onChange={(e) => setProjectEndMonth(e.target.value)} style={{ width: '100%', padding: '8px', background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }} />
+          <input type="date" value={projectEndMonth} onChange={(e) => setProjectEndMonth(e.target.value)} style={{ width: '100%', padding: '8px', background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }} />
         </FormRow>
         <FormRow label="Budget Dollars">
           <input type="number" value={projectBudget} onChange={(e) => setProjectBudget(Number(e.target.value))} style={{ width: '100%', padding: '8px', background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }} />
@@ -248,10 +252,10 @@ export function Projects() {
           <input type="text" value={phaseName} onChange={(e) => setPhaseName(e.target.value)} style={{ width: '100%', padding: '8px', background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }} />
         </FormRow>
         <FormRow label="Start Month">
-          <input type="month" value={phaseStartMonth} onChange={(e) => setPhaseStartMonth(e.target.value)} style={{ width: '100%', padding: '8px', background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }} />
+          <input type="date" value={phaseStartMonth} onChange={(e) => setPhaseStartMonth(e.target.value)} style={{ width: '100%', padding: '8px', background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }} />
         </FormRow>
         <FormRow label="End Month">
-          <input type="month" value={phaseEndMonth} onChange={(e) => setPhaseEndMonth(e.target.value)} style={{ width: '100%', padding: '8px', background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }} />
+          <input type="date" value={phaseEndMonth} onChange={(e) => setPhaseEndMonth(e.target.value)} style={{ width: '100%', padding: '8px', background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }} />
         </FormRow>
         <ModalActions>
           <button className="btn-ghost" onClick={() => setIsPhaseModalOpen(false)}>Cancel</button>
