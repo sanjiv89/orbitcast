@@ -138,8 +138,9 @@ export function GridView() {
             {filteredPeople.map(person => (
               <tr key={person.id} style={{ borderBottom: `1px solid ${BORDER}` }}>
                 <td style={{ background: BG_SURFACE, padding: '12px', color: TEXT_PRIMARY, position: 'sticky', left: 0, borderRight: `1px solid ${BORDER}` }}>
-                  <div>{person.name}</div>
-                  <div style={{ fontSize: '12px', color: TEXT_SEC }}>{roleById(person.role_id)?.name}</div>
+                  <div style={{ fontWeight: 500 }}>{person.name}</div>
+                  <div style={{ fontSize: 11, color: TEXT_SEC }}>{roleById(person.role_id)?.name}</div>
+                  <div style={{ fontSize: 10, color: '#55555F', marginTop: 1 }}>{person.department}</div>
                 </td>
                 {MONTHS.map(month => {
                   const { totalPct, allocs } = utilizationForPersonMonth(person.id, month)

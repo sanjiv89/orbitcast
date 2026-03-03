@@ -10,11 +10,27 @@ export interface Role {
   hourly_rate: number
 }
 
+export const DEPARTMENTS = [
+  'Partner Success',
+  'Delivery Manager',
+  'Product',
+  'Design',
+  'UXR',
+  'Clinical Solutions',
+  'Application Developer',
+  'Platform Engineer',
+  'Product Engineer',
+  'Data Eng',
+] as const
+
+export type Department = typeof DEPARTMENTS[number]
+
 export interface Person {
   id: string
   name: string
   role_id: string
   avatar_color: string
+  department: Department
 }
 
 export interface Project {

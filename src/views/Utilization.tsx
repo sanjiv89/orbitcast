@@ -79,6 +79,7 @@ export function Utilization() {
         <thead style={{ background: BG_SURFACE }}>
           <tr>
             <th style={{ padding: '12px', textAlign: 'left', color: TEXT_SEC }}>Person</th>
+            <th style={{ padding: '12px', textAlign: 'left', color: TEXT_SEC }}>Department</th>
             <th style={{ padding: '12px', textAlign: 'left', color: TEXT_SEC }}>Role</th>
             {MONTHS.map(month => (
               <th key={month} style={{ padding: '12px', textAlign: 'center', color: TEXT_SEC }}>{fmtMonth(month)}</th>
@@ -89,7 +90,12 @@ export function Utilization() {
         <tbody>
           {personMonthlyUtilization.map(({ person, monthlyData, avgUtilizationPct }) => (
             <tr key={person.id} style={{ borderBottom: `1px solid ${BORDER}` }}>
-              <td style={{ padding: '12px', color: TEXT_PRIMARY }}>{person.name}</td>
+              <td style={{ padding: '12px', color: TEXT_PRIMARY, fontWeight: 500 }}>{person.name}</td>
+              <td style={{ padding: '12px' }}>
+                <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: 'rgba(200,240,65,0.08)', color: '#A8D030' }}>
+                  {person.department}
+                </span>
+              </td>
               <td style={{ padding: '12px', color: TEXT_SEC }}>{getRoleName(person.role_id)}</td>
               {MONTHS.map(month => {
                 const { allocatedHours, utilizationPct } = monthlyData[month]
@@ -114,7 +120,8 @@ export function Utilization() {
         <tfoot style={{ background: BG_SURFACE, borderTop: `1px solid ${BORDER}` }}>
           <tr>
             <th style={{ padding: '12px', textAlign: 'left', color: TEXT_PRIMARY }}>Team Average</th>
-            <th style={{ padding: '12px', textAlign: 'left', color: TEXT_PRIMARY }}></th>
+            <th style={{ padding: '12px' }}></th>
+            <th style={{ padding: '12px' }}></th>
             {teamAverageMonthly.map(({ month, teamUtilizationPct }) => (
               <th key={month} style={{ padding: '12px', textAlign: 'center', color: TEXT_PRIMARY }}>
                 {teamUtilizationPct.toFixed(0)}%

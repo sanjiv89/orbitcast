@@ -130,8 +130,11 @@ export function Timeline() {
             <div style={{ height: '40px', padding: '0 12px', display: 'flex', alignItems: 'center', color: TEXT_SEC, borderBottom: `1px solid ${BORDER}` }}>Name / Role</div>
             {filteredPeople.map(person => (
               <React.Fragment key={person.id}>
-                <div style={{ height: '26px', padding: '0 12px', display: 'flex', alignItems: 'center', color: TEXT_PRIMARY, borderBottom: `1px solid ${BORDER}` }}>{person.name}</div>
-                <div style={{ height: '20px', padding: '0 12px', display: 'flex', alignItems: 'center', color: TEXT_SEC, fontSize: '12px', borderBottom: `1px solid ${BORDER}` }}>{roleById(person.role_id)?.name}</div>
+                <div style={{ height: '26px', padding: '0 12px', display: 'flex', alignItems: 'center', color: TEXT_PRIMARY, borderBottom: `1px solid ${BORDER}`, fontWeight: 500 }}>{person.name}</div>
+                <div style={{ padding: '2px 12px 2px', display: 'flex', flexDirection: 'column', gap: 1, borderBottom: `1px solid ${BORDER}` }}>
+                  <span style={{ color: TEXT_SEC, fontSize: 11 }}>{roleById(person.role_id)?.name}</span>
+                  <span style={{ color: '#55555F', fontSize: 10, letterSpacing: '0.02em' }}>{person.department}</span>
+                </div>
               </React.Fragment>
             ))}
           </div>

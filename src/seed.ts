@@ -14,10 +14,10 @@ export const seedRoles: Role[] = [
 ]
 
 export const seedPeople: Person[] = [
-  { id: 'p1', name: 'Sam Rivera',   role_id: 'r1', avatar_color: '#C8F041' },
-  { id: 'p2', name: 'Jordan Kim',   role_id: 'r2', avatar_color: '#60A5FA' },
-  { id: 'p3', name: 'Alex Chen',    role_id: 'r3', avatar_color: '#F97316' },
-  { id: 'p4', name: 'Morgan Patel', role_id: 'r4', avatar_color: '#A78BFA' },
+  { id: 'p1', name: 'Sam Rivera',   role_id: 'r1', avatar_color: '#C8F041', department: 'Platform Engineer'  },
+  { id: 'p2', name: 'Jordan Kim',   role_id: 'r2', avatar_color: '#60A5FA', department: 'Product Engineer'   },
+  { id: 'p3', name: 'Alex Chen',    role_id: 'r3', avatar_color: '#F97316', department: 'Design'             },
+  { id: 'p4', name: 'Morgan Patel', role_id: 'r4', avatar_color: '#A78BFA', department: 'Delivery Manager'   },
 ]
 
 export const seedProjects: Project[] = [
