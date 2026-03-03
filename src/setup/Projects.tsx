@@ -46,6 +46,60 @@ export function Projects() {
 
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({})
 
+  // ── Phase drag-and-drop order ───────────────────────────────────────────
+  // phaseOrders[projectId] = ordered array of phase IDs for that project
+  const [phaseOrders, setPhaseOrders]     = useState<Record<string, string[]>>({})
+  const [dragPhaseId, setDragPhaseId]     = useState<string | null>(null)
+  const [dragOverPhaseId, setDragOverPhaseId] = useState<string | null>(null)
+
+  const getOrderedPhases = (projectId: string): Phase[] => {
+    const projectPhases = phases.filter(p => p.project_id === projectId)
+    const order = phaseOrders[projectId]
+    if (!order || order.length === 0) return projectPhases
+    const ordered = order
+      .map(id => projectPhases.find(p => p.id === id))
+      .filter((p): p is Phase => p !== undefined)
+    // append any newly-added phases not yet in the saved order
+    const missing = projectPhases.filter(p => !order.includes(p.id))
+    return [...ordered, ...missing]
+  }
+
+  const handleDragStart = (e: React.DragEvent, phaseId: string) => {
+    setDragPhaseId(phaseId)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e: React.DragEvent, phaseId: string) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (phaseId !== dragPhaseId) setDragOverPhaseId(phaseId)
+  }
+
+  const handleDrop = (e: React.DragEvent, projectId: string, targetPhaseId: string) => {
+    e.preventDefault()
+    if (!dragPhaseId || dragPhaseId === targetPhaseId) {
+      setDragPhaseId(null)
+      setDragOverPhaseId(null)
+      return
+    }
+    const ordered = getOrderedPhases(projectId)
+    const ids = ordered.map(p => p.id)
+    const fromIdx = ids.indexOf(dragPhaseId)
+    const toIdx   = ids.indexOf(targetPhaseId)
+    if (fromIdx === -1 || toIdx === -1) return
+    const newIds = [...ids]
+    newIds.splice(fromIdx, 1)
+    newIds.splice(toIdx, 0, dragPhaseId)
+    setPhaseOrders(prev => ({ ...prev, [projectId]: newIds }))
+    setDragPhaseId(null)
+    setDragOverPhaseId(null)
+  }
+
+  const handleDragEnd = () => {
+    setDragPhaseId(null)
+    setDragOverPhaseId(null)
+  }
+
   const toggleExpand = (projectId: string) => {
     setExpandedProjects(prev => ({ ...prev, [projectId]: !prev[projectId] }))
   }
@@ -189,24 +243,45 @@ export function Projects() {
                     <button className="btn-primary" onClick={() => openAddPhaseModal(project.id)}>Add Phase</button>
                   </td>
                 </tr>
-                {expandedProjects[project.id] && phases.filter(p => p.project_id === project.id).map(phase => (
-                  <tr key={phase.id} style={{ borderBottom: `1px solid ${BORDER}`, background: BG_ELEVATED }}>
-                    <td style={{ padding: '12px', borderLeft: `4px solid ${customer?.color}`, marginLeft: '20px' }}></td>
-                    <td style={{ padding: '12px', color: TEXT_PRIMARY, paddingLeft: '32px' }}>{phase.name}</td>
-                    <td style={{ padding: '12px' }}></td>
-                    <td style={{ padding: '12px', color: TEXT_SEC }}>{fmtDate(phase.start_month)}</td>
-                    <td style={{ padding: '12px', color: TEXT_SEC }}>{fmtDate(phase.end_month)}</td>
-                    <td style={{ padding: '12px' }}></td>
-                    <td style={{ padding: '12px' }}></td>
-                    <td style={{ padding: '12px' }}></td>
-                    <td style={{ padding: '12px' }}></td>
-                    <td style={{ padding: '12px' }}>
-                      <button className="btn-ghost" onClick={() => openEditPhaseModal(phase)}>Edit</button>
-                      <button className="btn-danger" onClick={() => handleDeletePhase(phase.id)} style={{ marginLeft: '8px' }}>Delete</button>
-                    </td>
-                    <td></td>
-                  </tr>
-                ))}
+                {expandedProjects[project.id] && getOrderedPhases(project.id).map(phase => {
+                  const isDragging  = dragPhaseId === phase.id
+                  const isDropTarget = dragOverPhaseId === phase.id && dragPhaseId !== phase.id
+                  return (
+                    <tr
+                      key={phase.id}
+                      draggable
+                      onDragStart={e => handleDragStart(e, phase.id)}
+                      onDragOver={e => handleDragOver(e, phase.id)}
+                      onDrop={e => handleDrop(e, project.id, phase.id)}
+                      onDragEnd={handleDragEnd}
+                      style={{
+                        borderBottom: `1px solid ${BORDER}`,
+                        background: BG_ELEVATED,
+                        opacity: isDragging ? 0.35 : 1,
+                        boxShadow: isDropTarget ? `inset 0 2px 0 ${ACCENT}` : undefined,
+                        transition: 'opacity 0.15s, box-shadow 0.1s',
+                        cursor: 'grab',
+                      }}
+                    >
+                      {/* Drag handle */}
+                      <td style={{ padding: '10px 6px 10px 12px', borderLeft: `3px solid ${customer?.color || BORDER}`, userSelect: 'none' }}>
+                        <span style={{ color: TEXT_MUTED, fontSize: 14, letterSpacing: 1, cursor: 'grab', display: 'inline-block', lineHeight: 1 }}>
+                          ⠿
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 12px', color: TEXT_PRIMARY, paddingLeft: '28px' }}>{phase.name}</td>
+                      <td style={{ padding: '10px 12px' }}></td>
+                      <td style={{ padding: '10px 12px', color: TEXT_SEC }}>{fmtDate(phase.start_month)}</td>
+                      <td style={{ padding: '10px 12px', color: TEXT_SEC }}>{fmtDate(phase.end_month)}</td>
+                      <td colSpan={4} style={{ padding: '10px 12px' }}></td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <button className="btn-ghost" onClick={() => openEditPhaseModal(phase)}>Edit</button>
+                        <button className="btn-danger" onClick={() => handleDeletePhase(phase.id)} style={{ marginLeft: 8 }}>Delete</button>
+                      </td>
+                      <td></td>
+                    </tr>
+                  )
+                })}
               </React.Fragment>
             )
           })}
