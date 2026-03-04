@@ -43,8 +43,9 @@ function fmtDateFull(d: Date) {
 
 function getMonthsForOffset(granularity: Granularity, offset: number): string[] {
   if (granularity === 'month') {
-    const startIdx = offset * 6
-    return Array.from({ length: 6 }, (_, i) => {
+    // 12 months per page = one full calendar year
+    const startIdx = offset * 12
+    return Array.from({ length: 12 }, (_, i) => {
       const total = startIdx + i
       const y = 2025 + Math.floor(total / 12)
       const m = ((total % 12) + 12) % 12 + 1
@@ -82,6 +83,7 @@ function getPeriodLabel(months: string[], granularity: Granularity): string {
   const first = new Date(months[0] + '-01')
   const [ly, lm] = months[months.length - 1].split('-').map(Number)
   const last = new Date(ly, lm, 0)
+  if (granularity === 'month')  return `${first.getFullYear()}`   // 12-month page = one year
   if (granularity === 'quarter') return `${first.getFullYear()}: Q1 – Q4`
   if (granularity === 'year') {
     const ys = first.getFullYear(), ye = last.getFullYear()
@@ -90,8 +92,12 @@ function getPeriodLabel(months: string[], granularity: Granularity): string {
   return `${fmtDateFull(first)} – ${fmtDateFull(last)}`
 }
 
-function getPeriodOptions(granularity: Granularity): { label: string; offset: number }[] {
-  if (granularity === 'month') return [-1, 0, 1, 2].map(o => ({ label: getPeriodLabel(getMonthsForOffset('month', o), 'month'), offset: o }))
+function getPeriodOptions(granularity: Granularity, curOffset = 0): { label: string; offset: number }[] {
+  if (granularity === 'month') {
+    // Show 4 years around the current page — each offset = one calendar year
+    return [curOffset - 1, curOffset, curOffset + 1, curOffset + 2]
+      .map(o => ({ label: `${2025 + Math.max(0, o)}`, offset: Math.max(0, o) }))
+  }
   if (granularity === 'quarter') return [-1, 0, 1].map(o => ({ label: `${2025 + o}`, offset: o }))
   return [-1, 0, 1].map(o => { const b = 2025 + o * 3; return { label: `${b} – ${b + 2}`, offset: o } })
 }
@@ -160,7 +166,7 @@ function CapacityTooltip({ active, payload, label }: any) {
 function PeriodDropdown({ granularity, offset, onSelect }: { granularity: Granularity; offset: number; onSelect: (o: number) => void }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
-  const options = getPeriodOptions(granularity)
+  const options = getPeriodOptions(granularity, offset)
   const current = getPeriodLabel(getMonthsForOffset(granularity, offset), granularity)
 
   useEffect(() => {
@@ -195,7 +201,7 @@ export function Utilization() {
   const { utilizationForPersonMonth, hoursForAllocationInMonth, allocOverlapsMonth } = useDerived()
 
   const [granularity, setGranularity] = useState<Granularity>('month')
-  const [offset, setOffset]           = useState(() => currentMonthOffset(6))
+  const [offset, setOffset]           = useState(() => currentMonthOffset(12))
   const [tab, setTab]                 = useState<Tab>('people')
 
   const allMonths   = getMonthsForOffset(granularity, offset)
@@ -359,7 +365,7 @@ export function Utilization() {
             >{icon}</button>
           ))}
           <PeriodDropdown granularity={granularity} offset={offset} onSelect={setOffset} />
-          <button onClick={() => setOffset(currentMonthOffset(granularity === 'quarter' ? 12 : granularity === 'year' ? 36 : 6))}
+          <button onClick={() => setOffset(currentMonthOffset(granularity === 'quarter' ? 12 : granularity === 'year' ? 36 : 12))}
             style={{ background: 'transparent', border: '1px solid #333', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', color: '#525252', fontSize: 11, fontFamily: 'DM Mono, monospace' }}
             onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.color='#e5e5e5'; b.style.borderColor='#555' }}
             onMouseLeave={e => { const b = e.currentTarget as HTMLButtonElement; b.style.color='#525252'; b.style.borderColor='#333' }}
@@ -367,7 +373,7 @@ export function Utilization() {
         </div>
         <div style={{ display: 'flex', background: '#111', border: '1px solid #2a2a2a', borderRadius: 7, padding: 2 }}>
           {(['month', 'quarter', 'year'] as const).map(g => (
-            <button key={g} onClick={() => { setGranularity(g); setOffset(currentMonthOffset(g === 'quarter' ? 12 : g === 'year' ? 36 : 6)) }}
+            <button key={g} onClick={() => { setGranularity(g); setOffset(currentMonthOffset(g === 'quarter' ? 12 : g === 'year' ? 36 : 12)) }}
               style={{ background: granularity === g ? ACCENT : '#262626', border: 'none', borderRadius: 5, padding: '5px 14px', cursor: 'pointer', color: granularity === g ? '#0a0a0a' : '#737373', fontFamily: 'Syne, sans-serif', fontSize: 12, fontWeight: granularity === g ? 700 : 500, transition: 'all 0.12s', textTransform: 'capitalize' }}
             >{g === 'month' ? 'Months' : g === 'quarter' ? 'Quarters' : 'Year'}</button>
           ))}
