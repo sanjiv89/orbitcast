@@ -4,18 +4,23 @@ import { useStore, useDerived } from '../store'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 // ── Design tokens (matches existing views) ────────────────────────────────────
-const BG_BASE    = '#0D0D0F'
-const BG_SURFACE = '#141416'
-const BG_ELEVATED= '#1C1C1F'
-const BORDER     = '#2A2A2E'
-const ACCENT     = '#C8F041'   // lime — capacity bar
-const VIOLET     = '#A78BFA'   // violet — booked bar
-const TEXT_PRIMARY = '#F0F0F2'
-const TEXT_SEC   = '#8A8A96'
-const TEXT_MUTED = '#55555F'
-const GREEN      = '#4ADE80'
-const AMBER      = '#FBBF24'
-const RED        = '#F87171'
+const BG_BASE      = '#0D0D0F'
+const BG_SURFACE   = '#141416'
+const BG_ELEVATED  = '#1C1C1F'
+const BORDER       = '#2A2A2E'
+const ACCENT       = '#a3e635'   // vivid lime — capacity bar + brand accent
+const CYAN         = '#22d3ee'   // vivid cyan — booked bar
+const AVAIL_COLOR  = '#a3a3a3'   // neutral grey — available stat
+const CHART_GRID   = '#262626'   // subtle grid lines
+const TOOLTIP_BG   = '#1a1a1a'   // deep dark tooltip
+const TEXT_PRIMARY = '#e5e5e5'
+const TEXT_SEC     = '#a3a3a3'
+const TEXT_MUTED   = '#525252'
+const GREEN        = '#4ADE80'
+const AMBER        = '#FBBF24'
+const RED          = '#f87171'
+// Keep VIOLET alias so the existing per-person chart (avatar_color) is unaffected
+const VIOLET       = '#a78bfa'
 
 const AVAILABLE_HOURS_PER_MONTH = 160
 
@@ -141,32 +146,43 @@ function CapacityTooltip({ active, payload, label }: any) {
 
   return (
     <div style={{
-      background: BG_ELEVATED, border: `1px solid ${BORDER}`,
-      borderRadius: 10, padding: '12px 16px', fontSize: 12, minWidth: 180,
+      background: TOOLTIP_BG,
+      border: `1px solid ${Number(util) > 100 ? RED : CYAN}`,
+      borderRadius: 10, padding: '12px 16px', fontSize: 12, minWidth: 190,
+      boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
     }}>
-      <div style={{ color: TEXT_SEC, fontFamily: 'Syne, sans-serif', fontWeight: 700, marginBottom: 8, fontSize: 11, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+      <div style={{ color: '#ffffff', fontFamily: 'Syne, sans-serif', fontWeight: 700, marginBottom: 10, fontSize: 12, letterSpacing: '0.04em' }}>
         {label}
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24, marginBottom: 4 }}>
-        <span style={{ color: TEXT_MUTED }}>Capacity</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24, marginBottom: 5 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: TEXT_SEC }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: ACCENT, display: 'inline-block' }} />
+          Capacity
+        </span>
         <span style={{ color: ACCENT, fontFamily: 'monospace', fontWeight: 600 }}>{cap.toFixed(0)}h</span>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24, marginBottom: 4 }}>
-        <span style={{ color: TEXT_MUTED }}>Booked</span>
-        <span style={{ color: VIOLET, fontFamily: 'monospace', fontWeight: 600 }}>{booked.toFixed(0)}h</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24, marginBottom: 5 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: TEXT_SEC }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: CYAN, display: 'inline-block' }} />
+          Booked
+        </span>
+        <span style={{ color: CYAN, fontFamily: 'monospace', fontWeight: 600 }}>{booked.toFixed(0)}h</span>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24, marginBottom: 8 }}>
-        <span style={{ color: TEXT_MUTED }}>Available</span>
-        <span style={{ color: TEXT_SEC, fontFamily: 'monospace' }}>{Math.max(0, avail).toFixed(0)}h</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24, marginBottom: 10 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: TEXT_SEC }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: AVAIL_COLOR, display: 'inline-block' }} />
+          Available
+        </span>
+        <span style={{ color: '#e5e5e5', fontFamily: 'monospace' }}>{Math.max(0, avail).toFixed(0)}h</span>
       </div>
       <div style={{
-        borderTop: `1px solid ${BORDER}`, paddingTop: 8,
-        display: 'flex', justifyContent: 'space-between',
+        borderTop: `1px solid #2a2a2a`, paddingTop: 8,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       }}>
-        <span style={{ color: TEXT_MUTED }}>Utilization</span>
+        <span style={{ color: TEXT_SEC }}>Utilization</span>
         <span style={{
-          fontFamily: 'monospace', fontWeight: 700,
-          color: Number(util) > 100 ? RED : Number(util) >= 70 ? GREEN : ACCENT,
+          fontFamily: 'monospace', fontWeight: 700, fontSize: 13,
+          color: Number(util) > 100 ? RED : Number(util) >= 70 ? ACCENT : CYAN,
         }}>
           {util}%
         </span>
@@ -199,9 +215,9 @@ function PeriodDropdown({
       <button
         onClick={() => setOpen(v => !v)}
         style={{
-          background: 'transparent', border: `1px solid ${BORDER}`,
+          background: 'transparent', border: '1px solid #404040',
           borderRadius: 7, padding: '6px 12px',
-          color: TEXT_PRIMARY, fontFamily: 'Syne, sans-serif',
+          color: '#e5e5e5', fontFamily: 'Syne, sans-serif',
           fontWeight: 600, fontSize: 13, cursor: 'pointer',
           display: 'flex', alignItems: 'center', gap: 6,
         }}
@@ -339,13 +355,13 @@ export function Utilization() {
           <button
             onClick={() => setOffset(o => o - 1)}
             style={{
-              background: BG_ELEVATED, border: `1px solid ${BORDER}`,
+              background: '#1a1a1a', border: '1px solid #333333',
               borderRadius: 6, width: 30, height: 30, cursor: 'pointer',
-              color: TEXT_SEC, fontSize: 14, display: 'flex',
+              color: '#737373', fontSize: 16, display: 'flex',
               alignItems: 'center', justifyContent: 'center',
             }}
-            onMouseEnter={e => (e.currentTarget.style.color = TEXT_PRIMARY)}
-            onMouseLeave={e => (e.currentTarget.style.color = TEXT_SEC)}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#e5e5e5'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#555' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = '#737373'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#333333' }}
           >‹</button>
 
           <PeriodDropdown granularity={granularity} offset={offset} onSelect={setOffset} />
@@ -353,42 +369,42 @@ export function Utilization() {
           <button
             onClick={() => setOffset(o => o + 1)}
             style={{
-              background: BG_ELEVATED, border: `1px solid ${BORDER}`,
+              background: '#1a1a1a', border: '1px solid #333333',
               borderRadius: 6, width: 30, height: 30, cursor: 'pointer',
-              color: TEXT_SEC, fontSize: 14, display: 'flex',
+              color: '#737373', fontSize: 16, display: 'flex',
               alignItems: 'center', justifyContent: 'center',
             }}
-            onMouseEnter={e => (e.currentTarget.style.color = TEXT_PRIMARY)}
-            onMouseLeave={e => (e.currentTarget.style.color = TEXT_SEC)}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#e5e5e5'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#555' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = '#737373'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#333333' }}
           >›</button>
 
           <button
             onClick={() => setOffset(0)}
             style={{
-              background: 'transparent', border: `1px solid ${BORDER}`,
+              background: 'transparent', border: '1px solid #333333',
               borderRadius: 6, padding: '4px 10px', cursor: 'pointer',
-              color: TEXT_MUTED, fontSize: 11, fontFamily: 'DM Mono, monospace',
+              color: '#525252', fontSize: 11, fontFamily: 'DM Mono, monospace',
             }}
-            onMouseEnter={e => (e.currentTarget.style.color = TEXT_PRIMARY)}
-            onMouseLeave={e => (e.currentTarget.style.color = TEXT_MUTED)}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#e5e5e5'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#555' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = '#525252'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#333333' }}
           >Today</button>
         </div>
 
         {/* Granularity segmented toggle */}
         <div style={{
-          display: 'flex', background: BG_BASE,
-          border: `1px solid ${BORDER}`, borderRadius: 7, padding: 2,
+          display: 'flex', background: '#111111',
+          border: '1px solid #2a2a2a', borderRadius: 7, padding: 2,
         }}>
           {(['month', 'quarter', 'year'] as const).map(g => (
             <button
               key={g}
               onClick={() => { setGranularity(g); setOffset(0) }}
               style={{
-                background: granularity === g ? BG_ELEVATED : 'transparent',
+                background: granularity === g ? ACCENT : '#262626',
                 border: 'none', borderRadius: 5,
                 padding: '5px 14px', cursor: 'pointer',
-                color: granularity === g ? TEXT_PRIMARY : TEXT_MUTED,
-                fontFamily: 'Syne, sans-serif', fontSize: 12, fontWeight: granularity === g ? 600 : 400,
+                color: granularity === g ? '#0a0a0a' : '#737373',
+                fontFamily: 'Syne, sans-serif', fontSize: 12, fontWeight: granularity === g ? 700 : 500,
                 transition: 'all 0.12s',
                 textTransform: 'capitalize',
               }}
@@ -408,8 +424,8 @@ export function Utilization() {
         {/* Legend */}
         <div style={{ display: 'flex', gap: 20, marginBottom: 16, paddingLeft: 4 }}>
           {[
-            { color: ACCENT,  label: 'Total Capacity' },
-            { color: VIOLET, label: 'Hours Booked'   },
+            { color: ACCENT, label: 'Total Capacity' },
+            { color: CYAN,   label: 'Hours Booked'   },
           ].map(({ color, label }) => (
             <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <div style={{ width: 10, height: 10, borderRadius: 2, background: color }} />
@@ -420,21 +436,21 @@ export function Utilization() {
 
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={chartData.map(d => ({ ...d, month: d.label }))} barGap={4} barCategoryGap="30%">
-            <CartesianGrid vertical={false} stroke={BORDER} strokeDasharray="0" />
+            <CartesianGrid vertical={false} stroke={CHART_GRID} strokeDasharray="0" />
             <XAxis
               dataKey="month"
-              tick={{ fill: TEXT_MUTED, fontSize: 11, fontFamily: 'DM Mono, monospace' }}
+              tick={{ fill: '#737373', fontSize: 11, fontFamily: 'DM Mono, monospace' }}
               axisLine={false} tickLine={false}
             />
             <YAxis
-              tick={{ fill: TEXT_MUTED, fontSize: 11, fontFamily: 'DM Mono, monospace' }}
+              tick={{ fill: '#737373', fontSize: 11, fontFamily: 'DM Mono, monospace' }}
               axisLine={false} tickLine={false}
               tickFormatter={v => `${v}h`}
               width={48}
             />
-            <Tooltip content={<CapacityTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
-            <Bar dataKey="capacity" name="Capacity" fill={ACCENT}  fillOpacity={0.25} radius={[3,3,0,0]} />
-            <Bar dataKey="booked"   name="Booked"   fill={VIOLET} fillOpacity={0.85} radius={[3,3,0,0]} />
+            <Tooltip content={<CapacityTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+            <Bar dataKey="capacity" name="Total Capacity" fill={ACCENT} fillOpacity={0.30} radius={[3,3,0,0]} />
+            <Bar dataKey="booked"   name="Hours Booked"   fill={CYAN}   fillOpacity={0.90} radius={[3,3,0,0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -447,22 +463,25 @@ export function Utilization() {
       }}>
         {[
           {
-            label: 'Total Capacity',
-            value: `${periodCapacity.toLocaleString()}h`,
-            sub:  `${people.length} people · ${allMonths.length} month${allMonths.length !== 1 ? 's' : ''}`,
-            color: ACCENT,
+            label:       'Total Capacity',
+            value:       `${periodCapacity.toLocaleString()}h`,
+            sub:         `${people.length} people · ${allMonths.length} month${allMonths.length !== 1 ? 's' : ''}`,
+            valueColor:  '#e5e5e5',
+            borderColor: ACCENT,
           },
           {
-            label: 'Hours Booked',
-            value: `${periodBooked.toLocaleString()}h`,
-            sub:   `${periodUtil.toFixed(1)}% utilization`,
-            color: VIOLET,
+            label:       'Hours Booked',
+            value:       `${periodBooked.toLocaleString()}h`,
+            sub:         `${periodUtil.toFixed(1)}% utilization`,
+            valueColor:  '#e5e5e5',
+            borderColor: CYAN,
           },
           {
-            label: 'Hours Available',
-            value: `${Math.max(0, periodAvail).toLocaleString()}h`,
-            sub:   `${(100 - periodUtil).toFixed(1)}% remaining`,
-            color: periodAvail < 0 ? RED : TEXT_SEC,
+            label:       'Hours Available',
+            value:       `${Math.max(0, periodAvail).toLocaleString()}h`,
+            sub:         `${Math.max(0, 100 - periodUtil).toFixed(1)}% remaining`,
+            valueColor:  periodAvail < 0 ? RED : '#e5e5e5',
+            borderColor: periodAvail < 0 ? RED : '#404040',
           },
         ].map((card, i, arr) => (
           <div
@@ -470,15 +489,18 @@ export function Utilization() {
             style={{
               padding: '16px 20px',
               borderRight: i < arr.length - 1 ? `1px solid ${BORDER}` : 'none',
+              borderLeft: `3px solid ${card.borderColor}`,
+              // first card: left border is also the outer border-radius boundary
+              borderRadius: i === 0 ? '0 0 0 10px' : i === arr.length - 1 ? '0 0 10px 0' : '0',
             }}
           >
-            <div style={{ color: TEXT_MUTED, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.07em', fontFamily: 'Syne, sans-serif', fontWeight: 600, marginBottom: 4 }}>
+            <div style={{ color: '#525252', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: 'Syne, sans-serif', fontWeight: 700, marginBottom: 5 }}>
               {card.label}
             </div>
-            <div style={{ color: card.color, fontSize: 22, fontFamily: 'DM Mono, monospace', fontWeight: 600, lineHeight: 1.2 }}>
+            <div style={{ color: card.valueColor, fontSize: 22, fontFamily: 'DM Mono, monospace', fontWeight: 600, lineHeight: 1.2 }}>
               {card.value}
             </div>
-            <div style={{ color: TEXT_MUTED, fontSize: 11, marginTop: 4 }}>{card.sub}</div>
+            <div style={{ color: '#525252', fontSize: 11, marginTop: 4 }}>{card.sub}</div>
           </div>
         ))}
       </div>
