@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { StoreProvider } from './store'
+import { StoreProvider, useStore } from './store'
 import { Sidebar } from './components/Sidebar'
 import type { NavView } from './types'
 import { Customers } from './setup/Customers'
@@ -12,46 +12,74 @@ import { Spend } from './views/Spend'
 import { Budgets } from './views/Budgets'
 import { Utilization } from './views/Utilization'
 
-const BG_BASE='#0D0D0F'
-const BG_SURFACE='#141416'
-const BG_ELEVATED='#1C1C1F'
-const BORDER='#2A2A2E'
-const ACCENT='#C8F041'
-const TEXT_PRIMARY='#F0F0F2'
-const TEXT_SEC='#8A8A96'
-const TEXT_MUTED='#55555F'
-const GREEN='#4ADE80'
-const AMBER='#FBBF24'
-const RED='#F87171'
+const BG_BASE    = '#0D0D0F'
+const BG_SURFACE = '#141416'
+const ACCENT     = '#a3e635'
+const TEXT_SEC   = '#8A8A96'
 
-function App() {
+// ── Loading screen shown while Supabase data is fetching ─────────────────────
+function LoadingScreen() {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      height: '100vh', background: BG_BASE, gap: 16,
+    }}>
+      {/* Simple pulsing dot */}
+      <div style={{
+        width: 10, height: 10, borderRadius: '50%',
+        background: ACCENT,
+        animation: 'pulse 1.2s ease-in-out infinite',
+      }} />
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 0.2; transform: scale(0.8); }
+          50%       { opacity: 1;   transform: scale(1.2); }
+        }
+      `}</style>
+      <span style={{ color: TEXT_SEC, fontSize: 13, fontFamily: 'Syne, sans-serif' }}>
+        Loading workspace…
+      </span>
+    </div>
+  )
+}
+
+// ── Inner app (rendered inside StoreProvider) ─────────────────────────────────
+function AppInner() {
+  const { loading } = useStore()
   const [currentView, setCurrentView] = useState<NavView>('timeline')
+
+  if (loading) return <LoadingScreen />
 
   const renderView = () => {
     switch (currentView) {
-      case 'timeline': return <Timeline />
-      case 'grid': return <GridView />
-      case 'spend': return <Spend />
-      case 'budgets': return <Budgets />
+      case 'timeline':    return <Timeline />
+      case 'grid':        return <GridView />
+      case 'spend':       return <Spend />
+      case 'budgets':     return <Budgets />
       case 'utilization': return <Utilization />
-      case 'customers': return <Customers />
-      case 'projects': return <Projects />
-      case 'people': return <People />
-      case 'roles': return <Roles />
-      default: return <Timeline />
+      case 'customers':   return <Customers />
+      case 'projects':    return <Projects />
+      case 'people':      return <People />
+      case 'roles':       return <Roles />
+      default:            return <Timeline />
     }
   }
 
   return (
-    <StoreProvider>
-      <div style={{ display: 'flex', height: '100vh', background: BG_BASE, color: TEXT_PRIMARY }}>
-        <Sidebar active={currentView} onChange={setCurrentView} />
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {renderView()}
-        </div>
+    <div style={{ display: 'flex', height: '100vh', background: BG_BASE, color: '#F0F0F2' }}>
+      <Sidebar active={currentView} onChange={setCurrentView} />
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {renderView()}
       </div>
-    </StoreProvider>
+    </div>
   )
 }
 
-export default App
+export default function App() {
+  return (
+    <StoreProvider>
+      <AppInner />
+    </StoreProvider>
+  )
+}
