@@ -1,6 +1,9 @@
 import React, { useState } from 'react'
 import { useStore, useDerived } from '../store'
 import type { Customer, Project } from '../types'
+import { currentMonthOffset, monthsForOffset, fmtMonth as fmtMonthUtil } from '../lib/allocUtils'
+
+const MONTHS_PER_PAGE = 6
 
 const BG_BASE='#0D0D0F'
 const BG_SURFACE='#141416'
@@ -14,15 +17,16 @@ const GREEN='#4ADE80'
 const AMBER='#FBBF24'
 const RED='#F87171'
 
-const MONTHS = ['2025-01','2025-02','2025-03','2025-04','2025-05','2025-06']
-const fmtMonth = (m: string) => new Date(m + '-15').toLocaleDateString('en-US',{month:'short',year:'2-digit'})
+const fmtMonth = fmtMonthUtil
 const fmtMoney = (n: number) => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n)
 
 export function Spend() {
   const { customers, projects, allocations } = useStore()
   const { customerById, projectById, spendForAllocation, spendForAllocationInMonth } = useDerived()
 
-  const [viewBy, setViewBy] = useState<'customer' | 'project'>('customer')
+  const [viewBy, setViewBy]   = useState<'customer' | 'project'>('customer')
+  const [offset, setOffset]   = useState(() => currentMonthOffset(MONTHS_PER_PAGE))
+  const MONTHS                = monthsForOffset(offset, MONTHS_PER_PAGE)
 
   // Calculate total forecasted spend for summary cards
   const totalSpendByCustomer = customers.map(customer => {
@@ -96,7 +100,18 @@ export function Spend() {
   return (
     <div style={{ padding: '24px' }}>
       <div className="page-header">
-        <h2 style={{ color: TEXT_PRIMARY }}>Spend Analysis</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <h2 style={{ color: TEXT_PRIMARY }}>Spend Analysis</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button onClick={() => setOffset(o => Math.max(0, o - 1))}
+              style={{ background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: 4, color: TEXT_PRIMARY, width: 28, height: 28, cursor: 'pointer', fontSize: 14 }}>‹</button>
+            <span style={{ color: TEXT_SEC, fontSize: 12, fontFamily: 'DM Mono, monospace', minWidth: 130, textAlign: 'center' }}>
+              {fmtMonth(MONTHS[0])} – {fmtMonth(MONTHS[MONTHS.length - 1])}
+            </span>
+            <button onClick={() => setOffset(o => o + 1)}
+              style={{ background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: 4, color: TEXT_PRIMARY, width: 28, height: 28, cursor: 'pointer', fontSize: 14 }}>›</button>
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button className={`btn-ghost ${viewBy === 'customer' ? 'btn-primary' : ''}`} onClick={() => setViewBy('customer')}>By Customer</button>
           <button className={`btn-ghost ${viewBy === 'project' ? 'btn-primary' : ''}`} onClick={() => setViewBy('project')}>By Project</button>

@@ -11,7 +11,10 @@ import {
   pctForAllocationInMonth,
   monthsInRange, fmtMonth,
   countWorkingDays, monthStart as calcMonthStart, monthEnd as calcMonthEnd,
+  currentMonthOffset, monthsForOffset,
 } from '../lib/allocUtils'
+
+const MONTHS_PER_PAGE = 6
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const BG_BASE      = '#0D0D0F'
@@ -27,7 +30,6 @@ const AMBER        = '#FBBF24'
 const RED          = '#F87171'
 
 // ── Timeline constants ────────────────────────────────────────────────────────
-const MONTHS       = ['2025-01','2025-02','2025-03','2025-04','2025-05','2025-06']
 const COLUMN_WIDTH = 170
 const DRAG_THRESH  = 5      // px before a move is considered a drag
 
@@ -68,17 +70,7 @@ interface DragVisual {
 
 interface ToastData { kind: 'success' | 'warn' | 'error'; msg: string }
 
-// ── Pixel helpers (uses module-level MONTHS constant) ─────────────────────────
-const dateToPx = (d: Date) => dateToPixel(d, MONTHS, COLUMN_WIDTH)
-
-// End-of-bar pixel: end of end_date = start of (end_date + 1 day)
-const endDateToPx = (dateStr: string) => {
-  const d = parseDate(dateStr)
-  d.setDate(d.getDate() + 1)
-  return Math.min(dateToPx(d), MONTHS.length * COLUMN_WIDTH)
-}
-
-const pxToDate = (px: number) => pixelToDate(px, MONTHS, COLUMN_WIDTH)
+// Pixel helpers are now component-scoped (see inside Timeline component)
 
 // ── Overallocation warning (shared between modal and drag) ────────────────────
 function overallocationMonths(
@@ -127,6 +119,20 @@ export function Timeline() {
   const { people, projects, allocations, customers,
           addAllocation, updateAllocation, deleteAllocation } = useStore()
   const { roleById, projectById, customerById, utilizationForPersonMonth } = useDerived()
+
+  // ── Month range (dynamic — defaults to the page that contains today) ────
+  const [offset, setOffset] = useState(() => currentMonthOffset(MONTHS_PER_PAGE))
+  const months  = monthsForOffset(offset, MONTHS_PER_PAGE)
+  const monthsRef = useRef(months)
+  monthsRef.current = months
+
+  // Pixel helpers — always use current months via ref (safe inside drag closures)
+  const dateToPx    = (d: Date)      => dateToPixel(d, months, COLUMN_WIDTH)
+  const endDateToPx = (dateStr: string) => {
+    const d = parseDate(dateStr); d.setDate(d.getDate() + 1)
+    return Math.min(dateToPixel(d, months, COLUMN_WIDTH), months.length * COLUMN_WIDTH)
+  }
+  const pxToDate    = (px: number)   => pixelToDate(px, months, COLUMN_WIDTH)
 
   // ── Modal state ──────────────────────────────────────────────────────────
   const [isModalOpen,    setIsModalOpen]  = useState(false)
@@ -178,50 +184,43 @@ export function Timeline() {
       const rect    = pane?.getBoundingClientRect()
       const xInPane = pane ? e.clientX - (rect?.left ?? 0) + pane.scrollLeft : e.clientX
 
-      if (d.type === 'resize-right') {
-        // Right handle → update end_date
-        const rawEndPx   = d.origEndPx + (xInPane - (d.origEndPx + (pane?.getBoundingClientRect().left ?? 0)))
-        // Actually: the right edge in pane coords = origEndPx + deltaX
-        const deltaX     = xInPane - (d.origStartPx + (d.origEndPx - d.origStartPx) + (e.clientX - d.startX - (xInPane - (d.origEndPx + (e.clientX - d.startX)))))
+      const ms     = monthsRef.current
+      const colsW  = ms.length * COLUMN_WIDTH
+      const px2d   = (px: number) => pixelToDate(px, ms, COLUMN_WIDTH)
 
-        // Simpler: track delta from mousedown
+      if (d.type === 'resize-right') {
         const delta      = e.clientX - d.startX
-        const newEndPxRaw = d.origEndPx + delta
-        const newEndPx   = Math.max(d.origStartPx + COLUMN_WIDTH / 31, Math.min(newEndPxRaw, MONTHS.length * COLUMN_WIDTH))
-        // Convert to date: end_date is one day before the pixel position
-        const nextDay    = pxToDate(newEndPx)
+        const newEndPx   = Math.max(d.origStartPx + 4, Math.min(d.origEndPx + delta, colsW))
+        const nextDay    = px2d(newEndPx)
         const newEnd     = toDateStr(new Date(nextDay.getTime() - 86_400_000))
         const finalEnd   = newEnd < d.origStartDate ? d.origStartDate : newEnd
 
         setDragVisual({ allocId: d.alloc.id, personId: d.personId, type: 'resize-right',
-          previewStartPx: d.origStartPx, previewEndPx: Math.max(d.origStartPx + 4, newEndPx),
+          previewStartPx: d.origStartPx, previewEndPx: newEndPx,
           previewStart: d.origStartDate, previewEnd: finalEnd,
           tooltipX: e.clientX, tooltipY: e.clientY })
 
       } else if (d.type === 'resize-left') {
-        // Left handle → update start_date
-        const delta        = e.clientX - d.startX
-        const newStartPxRaw = d.origStartPx + delta
-        const newStartPx   = Math.max(0, Math.min(newStartPxRaw, d.origEndPx - COLUMN_WIDTH / 31))
-        const newStart     = toDateStr(pxToDate(newStartPx))
-        const finalStart   = newStart > d.origEndDate ? d.origEndDate : newStart
+        const delta       = e.clientX - d.startX
+        const newStartPx  = Math.max(0, Math.min(d.origStartPx + delta, d.origEndPx - 4))
+        const newStart    = toDateStr(px2d(newStartPx))
+        const finalStart  = newStart > d.origEndDate ? d.origEndDate : newStart
 
         setDragVisual({ allocId: d.alloc.id, personId: d.personId, type: 'resize-left',
-          previewStartPx: Math.min(newStartPx, d.origEndPx - 4), previewEndPx: d.origEndPx,
+          previewStartPx: newStartPx, previewEndPx: d.origEndPx,
           previewStart: finalStart, previewEnd: d.origEndDate,
           tooltipX: e.clientX, tooltipY: e.clientY })
 
       } else {
-        // Move — shift both dates by delta
         const delta        = e.clientX - d.startX
-        const newStartPxRaw = d.origStartPx + delta
-        const clampedStart = Math.max(0, Math.min(newStartPxRaw, MONTHS.length * COLUMN_WIDTH - (d.origEndPx - d.origStartPx)))
-        const newStartDate = toDateStr(pxToDate(clampedStart))
+        const barWidth     = d.origEndPx - d.origStartPx
+        const clampedStart = Math.max(0, Math.min(d.origStartPx + delta, colsW - barWidth))
+        const newStartDate = toDateStr(px2d(clampedStart))
         const newEndDate   = addDays(newStartDate, d.durationDays)
 
         setDragVisual({ allocId: d.alloc.id, personId: d.personId, type: 'move',
           previewStartPx: clampedStart,
-          previewEndPx:   clampedStart + (d.origEndPx - d.origStartPx),
+          previewEndPx:   clampedStart + barWidth,
           previewStart: newStartDate, previewEnd: newEndDate,
           tooltipX: e.clientX, tooltipY: e.clientY })
       }
@@ -330,7 +329,7 @@ export function Timeline() {
   }
 
   const handleSave = () => {
-    if (!currentPerson || !startDate || !endDate || startDate > endDate) return
+    if (!currentPerson || !startDate || !endDate || startDate > endDate || pct <= 0 || !projectId) return
     const base = {
       person_id: currentPerson.id,
       project_id: projectId,
@@ -379,7 +378,19 @@ export function Timeline() {
 
       {/* ── Page header ──────────────────────────────────────────────────── */}
       <div className="page-header" style={{ marginBottom: '16px' }}>
-        <h2 style={{ color: TEXT_PRIMARY }}>Timeline</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <h2 style={{ color: TEXT_PRIMARY }}>Timeline</h2>
+          {/* Month navigation */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button onClick={() => setOffset(o => Math.max(0, o - 1))}
+              style={{ background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: 4, color: TEXT_PRIMARY, width: 28, height: 28, cursor: 'pointer', fontSize: 14 }}>‹</button>
+            <span style={{ color: TEXT_SEC, fontSize: 12, fontFamily: 'DM Mono, monospace', minWidth: 130, textAlign: 'center' }}>
+              {fmtMonth(months[0])} – {fmtMonth(months[months.length - 1])}
+            </span>
+            <button onClick={() => setOffset(o => o + 1)}
+              style={{ background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: 4, color: TEXT_PRIMARY, width: 28, height: 28, cursor: 'pointer', fontSize: 14 }}>›</button>
+          </div>
+        </div>
         <div>
           <label style={{ color: TEXT_SEC, marginRight: '8px' }}>Filter:</label>
           <select
@@ -416,7 +427,7 @@ export function Timeline() {
 
             {/* Month headers */}
             <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}` }}>
-              {MONTHS.map(month => (
+              {months.map(month => (
                 <div key={month} style={{ minWidth: COLUMN_WIDTH, width: COLUMN_WIDTH, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', background: BG_SURFACE, color: TEXT_SEC, borderLeft: `1px solid ${BORDER}` }}>
                   {fmtMonth(month)}
                 </div>
@@ -440,7 +451,7 @@ export function Timeline() {
                     }}
                   >
                     {/* Background month cells — grid lines + click-to-add */}
-                    {MONTHS.map((month, mIdx) => (
+                    {months.map(month => (
                       <div
                         key={month}
                         style={{
@@ -468,7 +479,7 @@ export function Timeline() {
 
                       // Clamp to visible range
                       const visLeft  = Math.max(0, leftPx)
-                      const visRight = Math.min(MONTHS.length * COLUMN_WIDTH, rightPx)
+                      const visRight = Math.min(months.length * COLUMN_WIDTH, rightPx)
                       if (visLeft >= visRight) return null
 
                       const color      = getCustomerColor(alloc.project_id)
@@ -559,7 +570,7 @@ export function Timeline() {
 
                   {/* ── Capacity bar row ────────────────────────────────── */}
                   <div style={{ display: 'flex', height: 20, borderBottom: `1px solid ${BORDER}` }}>
-                    {MONTHS.map(month => {
+                    {months.map(month => {
                       const { totalPct } = utilizationForPersonMonth(person.id, month)
                       const capColor = totalPct >= 100 ? RED : totalPct >= 80 ? AMBER : GREEN
                       return (
@@ -663,7 +674,7 @@ export function Timeline() {
           <button
             className="btn-primary"
             onClick={handleSave}
-            disabled={!startDate || !endDate || startDate > endDate}
+            disabled={!startDate || !endDate || startDate > endDate || pct <= 0 || !projectId}
           >
             Save
           </button>

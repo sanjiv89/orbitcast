@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { useStore, useDerived } from '../store'
+import { currentMonthOffset } from '../lib/allocUtils'
 // @ts-ignore
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
@@ -194,7 +195,7 @@ export function Utilization() {
   const { utilizationForPersonMonth, hoursForAllocationInMonth, allocOverlapsMonth } = useDerived()
 
   const [granularity, setGranularity] = useState<Granularity>('month')
-  const [offset, setOffset]           = useState(0)
+  const [offset, setOffset]           = useState(() => currentMonthOffset(6))
   const [tab, setTab]                 = useState<Tab>('people')
 
   const allMonths   = getMonthsForOffset(granularity, offset)
@@ -358,7 +359,7 @@ export function Utilization() {
             >{icon}</button>
           ))}
           <PeriodDropdown granularity={granularity} offset={offset} onSelect={setOffset} />
-          <button onClick={() => setOffset(0)}
+          <button onClick={() => setOffset(currentMonthOffset(6))}
             style={{ background: 'transparent', border: '1px solid #333', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', color: '#525252', fontSize: 11, fontFamily: 'DM Mono, monospace' }}
             onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.color='#e5e5e5'; b.style.borderColor='#555' }}
             onMouseLeave={e => { const b = e.currentTarget as HTMLButtonElement; b.style.color='#525252'; b.style.borderColor='#333' }}
@@ -366,7 +367,7 @@ export function Utilization() {
         </div>
         <div style={{ display: 'flex', background: '#111', border: '1px solid #2a2a2a', borderRadius: 7, padding: 2 }}>
           {(['month', 'quarter', 'year'] as const).map(g => (
-            <button key={g} onClick={() => { setGranularity(g); setOffset(0) }}
+            <button key={g} onClick={() => { setGranularity(g); setOffset(currentMonthOffset(g === 'quarter' ? 4 : g === 'year' ? 1 : 6)) }}
               style={{ background: granularity === g ? ACCENT : '#262626', border: 'none', borderRadius: 5, padding: '5px 14px', cursor: 'pointer', color: granularity === g ? '#0a0a0a' : '#737373', fontFamily: 'Syne, sans-serif', fontSize: 12, fontWeight: granularity === g ? 700 : 500, transition: 'all 0.12s', textTransform: 'capitalize' }}
             >{g === 'month' ? 'Months' : g === 'quarter' ? 'Quarters' : 'Year'}</button>
           ))}

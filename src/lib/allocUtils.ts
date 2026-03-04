@@ -183,6 +183,33 @@ export function pixelToDate(px: number, months: string[], colW: number): Date {
   return new Date(y, m - 1, day)
 }
 
+// ── Month navigation ──────────────────────────────────────────────────────────
+
+/**
+ * Compute the page offset (groups of `perPage` months since Jan 2025)
+ * that contains today's date.  Use as the default `useState` value for
+ * any view that shows a sliding window of months.
+ */
+export function currentMonthOffset(perPage = 6): number {
+  const now = new Date()
+  const monthsSinceBase = (now.getFullYear() - 2025) * 12 + now.getMonth()
+  return Math.max(0, Math.floor(monthsSinceBase / perPage))
+}
+
+/**
+ * Return an array of `count` YYYY-MM strings starting at the month
+ * that is `offset * count` months after Jan 2025.
+ */
+export function monthsForOffset(offset: number, count = 6): string[] {
+  const startIdx = offset * count
+  return Array.from({ length: count }, (_, i) => {
+    const total = startIdx + i
+    const y     = 2025 + Math.floor(total / 12)
+    const m     = (total % 12) + 1
+    return `${y}-${String(m).padStart(2, '0')}`
+  })
+}
+
 /** Duration in calendar days between two date strings (inclusive) */
 export function durationDays(startDate: string, endDate: string): number {
   return Math.round(

@@ -12,8 +12,11 @@ import {
   toDateStr,
   countWorkingDays,
   parseDate,
+  currentMonthOffset,
+  monthsForOffset,
 } from '../lib/allocUtils'
 
+const MONTHS_PER_PAGE = 6
 const BG_BASE      = '#0D0D0F'
 const BG_SURFACE   = '#141416'
 const BG_ELEVATED  = '#1C1C1F'
@@ -24,7 +27,7 @@ const TEXT_MUTED   = '#55555F'
 const RED          = '#F87171'
 const AMBER        = '#FBBF24'
 
-const MONTHS = ['2025-01','2025-02','2025-03','2025-04','2025-05','2025-06']
+// MONTHS is now dynamic — see offset state inside GridView component
 const fmtMoney = (n: number) => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n)
 
 // ── Live monthly preview ──────────────────────────────────────────────────────
@@ -105,6 +108,10 @@ export function GridView() {
   const { people, projects, allocations, customers, addAllocation, updateAllocation, deleteAllocation } = useStore()
   const { roleById, projectById, customerById, utilizationForPersonMonth } = useDerived()
 
+  // Month range — defaults to window containing today
+  const [offset, setOffset]                 = useState(() => currentMonthOffset(MONTHS_PER_PAGE))
+  const MONTHS                              = monthsForOffset(offset, MONTHS_PER_PAGE)
+
   const [isModalOpen, setIsModalOpen]       = useState(false)
   const [editingAllocation, setEditingAlloc] = useState<Allocation | null>(null)
   const [currentPerson, setCurrentPerson]   = useState<Person | null>(null)
@@ -138,7 +145,7 @@ export function GridView() {
   }
 
   const handleSave = () => {
-    if (!currentPerson || !startDate || !endDate || startDate > endDate) return
+    if (!currentPerson || !startDate || !endDate || startDate > endDate || pct <= 0 || !projectId) return
     const base = {
       person_id: currentPerson.id,
       project_id: projectId,
@@ -188,7 +195,18 @@ export function GridView() {
   return (
     <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 48px)' }}>
       <div className="page-header" style={{ marginBottom: '16px' }}>
-        <h2 style={{ color: TEXT_PRIMARY }}>Grid View</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <h2 style={{ color: TEXT_PRIMARY }}>Grid View</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button onClick={() => setOffset(o => Math.max(0, o - 1))}
+              style={{ background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: 4, color: TEXT_PRIMARY, width: 28, height: 28, cursor: 'pointer', fontSize: 14 }}>‹</button>
+            <span style={{ color: TEXT_SEC, fontSize: 12, fontFamily: 'DM Mono, monospace', minWidth: 130, textAlign: 'center' }}>
+              {fmtMonth(MONTHS[0])} – {fmtMonth(MONTHS[MONTHS.length - 1])}
+            </span>
+            <button onClick={() => setOffset(o => o + 1)}
+              style={{ background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: 4, color: TEXT_PRIMARY, width: 28, height: 28, cursor: 'pointer', fontSize: 14 }}>›</button>
+          </div>
+        </div>
         <div>
           <label style={{ color: TEXT_SEC, marginRight: '8px' }}>Filter by Customer:</label>
           <select
@@ -313,7 +331,7 @@ export function GridView() {
           <button
             className="btn-primary"
             onClick={handleSave}
-            disabled={!startDate || !endDate || startDate > endDate}
+            disabled={!startDate || !endDate || startDate > endDate || pct <= 0 || !projectId}
           >
             Save
           </button>
