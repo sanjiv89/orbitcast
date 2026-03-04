@@ -1,10 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import type { Customer, Role, Person, Project, Phase, Allocation } from './types'
 import { supabase } from './lib/supabase'
-import {
-  seedCustomers, seedRoles, seedPeople,
-  seedProjects, seedPhases, seedAllocations,
-} from './seed'
+import { seedDatabase } from './lib/seedDb'
 
 // ── Store interface ───────────────────────────────────────────────────────────
 interface Store {
@@ -40,6 +37,11 @@ interface Store {
   addAllocation:    (a: Omit<Allocation, 'id'>) => void
   updateAllocation: (a: Allocation)              => void
   deleteAllocation: (id: string)                 => void
+
+  /** Re-fetch all data from Supabase */
+  reload: () => Promise<void>
+  /** Wipe all crewcast_ tables and re-insert seed data */
+  seedDatabase: () => Promise<{ ok: boolean; error?: string }>
 }
 
 const Ctx = createContext<Store | null>(null)
@@ -58,11 +60,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [allocations,  setAllocations]  = useState<Allocation[]>([])
 
   // ── Initial data load ──────────────────────────────────────────────────────
-  useEffect(() => {
-    loadAll()
-  }, [])
+  useEffect(() => { loadAll() }, [])
 
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     setLoading(true)
     try {
       const [custR, roleR, pplR, projR, phR, allocR] = await Promise.all([
@@ -74,47 +74,42 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         supabase.from('crewcast_allocations').select('*'),
       ])
 
-      // Surface any Supabase errors immediately
+      // Surface any Supabase errors immediately — don't swallow silently
       for (const res of [custR, roleR, pplR, projR, phR, allocR]) {
         if (res.error) {
-          console.error('[Crewcast] Supabase load error:', res.error)
+          console.error('[Crewcast] Supabase load error:', res.error.message)
           throw res.error
         }
       }
 
-      // First run after migration: tables are empty → insert seed data
+      // First run after migration: tables are empty → auto-seed with demo data
       if ((custR.data?.length ?? 0) === 0 && (roleR.data?.length ?? 0) === 0) {
-        console.info('[Crewcast] Empty DB — inserting seed data')
-        await insertSeed()
-        return   // insertSeed calls loadAll() again at end
+        console.info('[Crewcast] Empty DB detected — auto-seeding demo data…')
+        const result = await seedDatabase()
+        if (!result.ok) {
+          console.error('[Crewcast] Auto-seed failed:', result.error)
+          console.error('[Crewcast] Hint: run supabase/migration.sql in the Supabase SQL Editor first.')
+          setLoading(false)
+          return
+        }
+        // Re-fetch after seed
+        await loadAll()
+        return
       }
 
-      setCustomers(custR.data   as Customer[])
-      setRoles(roleR.data       as Role[])
-      setPeople(pplR.data       as Person[])
-      setProjects(projR.data    as Project[])
-      setPhases(phR.data        as Phase[])
+      setCustomers(custR.data  as Customer[])
+      setRoles(roleR.data      as Role[])
+      setPeople(pplR.data      as Person[])
+      setProjects(projR.data   as Project[])
+      setPhases(phR.data       as Phase[])
       setAllocations(allocR.data as Allocation[])
-    } catch (err) {
-      console.error('[Crewcast] loadAll failed — check Supabase tables and RLS:', err)
+    } catch (err: any) {
+      console.error('[Crewcast] loadAll failed:', err?.message ?? err)
+      console.error('[Crewcast] Ensure migration.sql has been run in Supabase SQL Editor.')
     } finally {
       setLoading(false)
     }
-  }
-
-  async function insertSeed() {
-    // Insert in dependency order (parent tables first)
-    const steps = [
-      supabase.from('crewcast_customers').insert(seedCustomers),
-      supabase.from('crewcast_roles').insert(seedRoles),
-    ]
-    await Promise.all(steps)
-    await supabase.from('crewcast_people').insert(seedPeople)
-    await supabase.from('crewcast_projects').insert(seedProjects)
-    await supabase.from('crewcast_phases').insert(seedPhases)
-    await supabase.from('crewcast_allocations').insert(seedAllocations)
-    await loadAll()
-  }
+  }, [])
 
   // ── Optimistic mutation helpers ────────────────────────────────────────────
   //
@@ -344,6 +339,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     })
   }
 
+  // ── Public seed + reload ───────────────────────────────────────────────────
+  const runSeedDatabase = async (): Promise<{ ok: boolean; error?: string }> => {
+    setLoading(true)
+    const result = await seedDatabase()
+    if (result.ok) await loadAll()
+    else setLoading(false)
+    return result
+  }
+
   // ── Assemble store ─────────────────────────────────────────────────────────
   const store: Store = {
     loading,
@@ -354,6 +358,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addProject, updateProject, deleteProject,
     addPhase, updatePhase, deletePhase,
     addAllocation, updateAllocation, deleteAllocation,
+    reload: loadAll,
+    seedDatabase: runSeedDatabase,
   }
 
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>

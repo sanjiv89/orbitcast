@@ -1,39 +1,50 @@
 -- ============================================================
---  Crewcast schema — paste into Supabase SQL Editor and Run
---  Tables use text primary keys so the app can supply its own
---  IDs (crypto.randomUUID() for new records, short strings for
---  the initial seed data).
+--  Crewcast — full schema + RLS
+--  Run once in Supabase SQL Editor (Dashboard → SQL Editor → New query)
 --
---  RLS is disabled on all tables — Crewcast is a single-tenant
---  internal tool with no user authentication.
---  Add RLS policies here if you add auth in future.
+--  Tables use TEXT primary keys so the app can supply its own
+--  IDs — crypto.randomUUID() for new records, short strings for
+--  the initial seed data ('c1', 'r1', 'p1', …).
+--
+--  Schema columns exactly match the TypeScript interfaces in
+--  src/types.ts — do NOT rename columns without updating types.ts.
 -- ============================================================
 
+-- ── Drop & recreate (idempotent re-run) ─────────────────────
+drop table if exists crewcast_allocations;
+drop table if exists crewcast_phases;
+drop table if exists crewcast_projects;
+drop table if exists crewcast_people;
+drop table if exists crewcast_roles;
+drop table if exists crewcast_customers;
+
 -- ── Customers ────────────────────────────────────────────────
-create table if not exists crewcast_customers (
-  id    text    primary key,
-  name  text    not null,
-  color text    not null default '#6366f1'
+create table crewcast_customers (
+  id    text primary key,
+  name  text not null,
+  color text not null default '#6366f1'
 );
 
 -- ── Roles ────────────────────────────────────────────────────
-create table if not exists crewcast_roles (
+create table crewcast_roles (
   id           text    primary key,
   name         text    not null,
   hourly_rate  numeric not null default 0
 );
 
 -- ── People ───────────────────────────────────────────────────
-create table if not exists crewcast_people (
-  id            text    primary key,
-  name          text    not null,
-  role_id       text    not null default '',
-  avatar_color  text    not null default '#C8F041',
-  department    text    not null default ''
+-- department is stored as a text value matching the DEPARTMENTS
+-- constant in types.ts — no separate departments table needed.
+create table crewcast_people (
+  id            text primary key,
+  name          text not null,
+  role_id       text not null default '',
+  avatar_color  text not null default '#C8F041',
+  department    text not null default ''
 );
 
 -- ── Projects ─────────────────────────────────────────────────
-create table if not exists crewcast_projects (
+create table crewcast_projects (
   id              text     primary key,
   name            text     not null,
   customer_id     text     not null default '',
@@ -45,7 +56,7 @@ create table if not exists crewcast_projects (
 );
 
 -- ── Phases ───────────────────────────────────────────────────
-create table if not exists crewcast_phases (
+create table crewcast_phases (
   id          text primary key,
   project_id  text not null default '',
   name        text not null,
@@ -54,7 +65,9 @@ create table if not exists crewcast_phases (
 );
 
 -- ── Allocations ──────────────────────────────────────────────
-create table if not exists crewcast_allocations (
+-- month  = 'YYYY-MM' string  (not a date — timeline uses month buckets)
+-- pct    = 0–100 integer     (percentage of 160 h/month capacity)
+create table crewcast_allocations (
   id          text     primary key,
   person_id   text     not null default '',
   project_id  text     not null default '',
@@ -63,10 +76,27 @@ create table if not exists crewcast_allocations (
   confirmed   boolean  not null default true
 );
 
--- ── Grant anon access (no RLS enforced) ──────────────────────
-grant all on crewcast_customers   to anon, authenticated;
-grant all on crewcast_roles        to anon, authenticated;
-grant all on crewcast_people       to anon, authenticated;
-grant all on crewcast_projects     to anon, authenticated;
-grant all on crewcast_phases       to anon, authenticated;
-grant all on crewcast_allocations  to anon, authenticated;
+-- ── Row Level Security ───────────────────────────────────────
+-- Open policies — Crewcast is a single-tenant internal tool
+-- with no user authentication. Enable RLS so PostgREST can
+-- access the tables via the anon key, but allow all operations.
+
+alter table crewcast_customers   enable row level security;
+alter table crewcast_roles        enable row level security;
+alter table crewcast_people       enable row level security;
+alter table crewcast_projects     enable row level security;
+alter table crewcast_phases       enable row level security;
+alter table crewcast_allocations  enable row level security;
+
+create policy "Allow all" on crewcast_customers   for all using (true) with check (true);
+create policy "Allow all" on crewcast_roles        for all using (true) with check (true);
+create policy "Allow all" on crewcast_people       for all using (true) with check (true);
+create policy "Allow all" on crewcast_projects     for all using (true) with check (true);
+create policy "Allow all" on crewcast_phases       for all using (true) with check (true);
+create policy "Allow all" on crewcast_allocations  for all using (true) with check (true);
+
+-- ── Verify ───────────────────────────────────────────────────
+-- After running, confirm these return rows:
+-- select * from crewcast_customers;
+-- select * from crewcast_people;
+-- select * from crewcast_allocations;
