@@ -47,31 +47,30 @@ export const seedPhases: Phase[] = [
   { id: 'ph6', project_id: 'proj3', name: 'Components',   start_month: '2025-06-02', end_month: '2025-08-29' },
 ]
 
+// Allocations now use date ranges + a single allocation_percentage.
+// Consecutive same-project/same-pct months are merged into spans for
+// a more realistic demo of the new date-range model.
 export const seedAllocations: Allocation[] = [
   // Sam Rivera — Engineering Lead
-  { id: 'a1',  person_id: 'p1', project_id: 'proj1', month: '2025-01', pct: 80, confirmed: true  },
-  { id: 'a2',  person_id: 'p1', project_id: 'proj1', month: '2025-02', pct: 80, confirmed: true  },
-  { id: 'a3',  person_id: 'p1', project_id: 'proj1', month: '2025-03', pct: 60, confirmed: true  },
-  { id: 'a4',  person_id: 'p1', project_id: 'proj2', month: '2025-03', pct: 30, confirmed: false },
-  { id: 'a5',  person_id: 'p1', project_id: 'proj1', month: '2025-04', pct: 100,confirmed: true  },
+  { id: 'a1',  person_id: 'p1', project_id: 'proj1', start_date: '2025-01-01', end_date: '2025-02-28', allocation_percentage: 80,  confirmed: true  },
+  { id: 'a3',  person_id: 'p1', project_id: 'proj1', start_date: '2025-03-01', end_date: '2025-03-31', allocation_percentage: 60,  confirmed: true  },
+  { id: 'a4',  person_id: 'p1', project_id: 'proj2', start_date: '2025-03-15', end_date: '2025-04-14', allocation_percentage: 30,  confirmed: false },
+  { id: 'a5',  person_id: 'p1', project_id: 'proj1', start_date: '2025-04-01', end_date: '2025-04-30', allocation_percentage: 100, confirmed: true  },
 
   // Jordan Kim — Senior Engineer
-  { id: 'a6',  person_id: 'p2', project_id: 'proj1', month: '2025-01', pct: 50, confirmed: true  },
-  { id: 'a7',  person_id: 'p2', project_id: 'proj2', month: '2025-02', pct: 60, confirmed: true  },
-  { id: 'a8',  person_id: 'p2', project_id: 'proj2', month: '2025-03', pct: 80, confirmed: true  },
-  { id: 'a9',  person_id: 'p2', project_id: 'proj3', month: '2025-04', pct: 40, confirmed: false },
-  { id: 'a10', person_id: 'p2', project_id: 'proj2', month: '2025-05', pct: 70, confirmed: true  },
+  { id: 'a6',  person_id: 'p2', project_id: 'proj1', start_date: '2025-01-06', end_date: '2025-01-31', allocation_percentage: 50,  confirmed: true  },
+  { id: 'a7',  person_id: 'p2', project_id: 'proj2', start_date: '2025-02-03', end_date: '2025-03-31', allocation_percentage: 70,  confirmed: true  },
+  { id: 'a9',  person_id: 'p2', project_id: 'proj3', start_date: '2025-04-01', end_date: '2025-04-30', allocation_percentage: 40,  confirmed: false },
+  { id: 'a10', person_id: 'p2', project_id: 'proj2', start_date: '2025-05-01', end_date: '2025-05-31', allocation_percentage: 70,  confirmed: true  },
 
   // Alex Chen — Product Designer
-  { id: 'a11', person_id: 'p3', project_id: 'proj2', month: '2025-02', pct: 50, confirmed: true  },
-  { id: 'a12', person_id: 'p3', project_id: 'proj3', month: '2025-03', pct: 80, confirmed: false },
-  { id: 'a13', person_id: 'p3', project_id: 'proj3', month: '2025-04', pct: 80, confirmed: false },
-  { id: 'a14', person_id: 'p3', project_id: 'proj1', month: '2025-05', pct: 40, confirmed: true  },
+  { id: 'a11', person_id: 'p3', project_id: 'proj2', start_date: '2025-02-03', end_date: '2025-02-28', allocation_percentage: 50,  confirmed: true  },
+  { id: 'a12', person_id: 'p3', project_id: 'proj3', start_date: '2025-03-10', end_date: '2025-04-30', allocation_percentage: 80,  confirmed: false },
+  { id: 'a14', person_id: 'p3', project_id: 'proj1', start_date: '2025-05-01', end_date: '2025-06-13', allocation_percentage: 40,  confirmed: true  },
 
   // Morgan Patel — Project Manager
-  { id: 'a15', person_id: 'p4', project_id: 'proj1', month: '2025-01', pct: 30, confirmed: true  },
-  { id: 'a16', person_id: 'p4', project_id: 'proj2', month: '2025-02', pct: 50, confirmed: true  },
-  { id: 'a17', person_id: 'p4', project_id: 'proj3', month: '2025-03', pct: 40, confirmed: false },
-  { id: 'a18', person_id: 'p4', project_id: 'proj1', month: '2025-04', pct: 60, confirmed: true  },
-  { id: 'a19', person_id: 'p4', project_id: 'proj2', month: '2025-05', pct: 50, confirmed: true  },
+  { id: 'a15', person_id: 'p4', project_id: 'proj1', start_date: '2025-01-01', end_date: '2025-01-31', allocation_percentage: 30,  confirmed: true  },
+  { id: 'a16', person_id: 'p4', project_id: 'proj2', start_date: '2025-02-03', end_date: '2025-02-28', allocation_percentage: 50,  confirmed: true  },
+  { id: 'a17', person_id: 'p4', project_id: 'proj3', start_date: '2025-03-10', end_date: '2025-03-31', allocation_percentage: 40,  confirmed: false },
+  { id: 'a18', person_id: 'p4', project_id: 'proj1', start_date: '2025-04-01', end_date: '2025-05-30', allocation_percentage: 60,  confirmed: true  },
 ]

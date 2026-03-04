@@ -1,9 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useStore, useDerived } from '../store'
 import type { Allocation, Person } from '../types'
 import { Modal, FormRow, ModalActions } from '../components/Modal'
+import {
+  CAPACITY_HOURS_PER_MONTH,
+  dateToPixel, pixelToDate,
+  durationDays, addDays,
+  toDateStr, parseDate,
+  hoursForAllocationInMonth,
+  pctForAllocationInMonth,
+  monthsInRange, fmtMonth,
+  countWorkingDays, monthStart as calcMonthStart, monthEnd as calcMonthEnd,
+} from '../lib/allocUtils'
 
-// ── Design tokens (unchanged) ─────────────────────────────────────────────────
+// ── Design tokens ─────────────────────────────────────────────────────────────
 const BG_BASE      = '#0D0D0F'
 const BG_SURFACE   = '#141416'
 const BG_ELEVATED  = '#1C1C1F'
@@ -18,125 +28,202 @@ const RED          = '#F87171'
 
 // ── Timeline constants ────────────────────────────────────────────────────────
 const MONTHS       = ['2025-01','2025-02','2025-03','2025-04','2025-05','2025-06']
-const COLUMN_WIDTH = 170    // must match minWidth / width on every month cell
-const DRAG_THRESH  = 5      // px — how far the mouse must move before it's a drag
-const SNAP_STEP    = 5      // pct snap increment for resize
+const COLUMN_WIDTH = 170
+const DRAG_THRESH  = 5      // px before a move is considered a drag
 
-const fmtMonth     = (m: string) => new Date(m + '-15').toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
-const fmtMonthLong = (m: string) => new Date(m + '-15').toLocaleDateString('en-US', { month: 'long',  year: 'numeric' })
-const fmtMoney     = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
-
-function snapPct(raw: number): number {
-  return Math.max(1, Math.min(100, Math.round(raw / SNAP_STEP) * SNAP_STEP))
+const fmtMonthLong = (m: string) =>
+  new Date(m + '-15').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+const fmtDateShort = (s: string) => {
+  const d = parseDate(s)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 // ── Drag types ────────────────────────────────────────────────────────────────
 type DragType = 'resize-left' | 'resize-right' | 'move'
 
-/** Captured at mousedown — never mutated, lives in a ref */
 interface DragStart {
-  type:              DragType
-  alloc:             Allocation
-  personId:          string
-  startX:            number
-  startPct:          number
-  originalMonthIdx:  number
-  moved:             boolean   // true once past DRAG_THRESH
+  type:             DragType
+  alloc:            Allocation
+  personId:         string
+  startX:           number          // initial clientX
+  origStartDate:    string          // YYYY-MM-DD
+  origEndDate:      string          // YYYY-MM-DD
+  origStartPx:      number          // pixel offset of start_date
+  origEndPx:        number          // pixel offset of end_date+1day
+  durationDays:     number          // for move: preserve this span
+  moved:            boolean
 }
 
-/** Updated on every mousemove — drives re-renders for live preview */
 interface DragVisual {
-  allocId:   string
-  personId:  string
-  type:      DragType
-  pct:       number    // preview pct (resize) | original pct (move)
-  monthIdx:  number    // preview target month (move) | original month (resize)
-  tooltipX:  number
-  tooltipY:  number
+  allocId:        string
+  personId:       string
+  type:           DragType
+  previewStartPx: number
+  previewEndPx:   number
+  previewStart:   string            // YYYY-MM-DD for tooltip / save
+  previewEnd:     string            // YYYY-MM-DD
+  tooltipX:       number
+  tooltipY:       number
 }
 
 interface ToastData { kind: 'success' | 'warn' | 'error'; msg: string }
+
+// ── Pixel helpers (uses module-level MONTHS constant) ─────────────────────────
+const dateToPx = (d: Date) => dateToPixel(d, MONTHS, COLUMN_WIDTH)
+
+// End-of-bar pixel: end of end_date = start of (end_date + 1 day)
+const endDateToPx = (dateStr: string) => {
+  const d = parseDate(dateStr)
+  d.setDate(d.getDate() + 1)
+  return Math.min(dateToPx(d), MONTHS.length * COLUMN_WIDTH)
+}
+
+const pxToDate = (px: number) => pixelToDate(px, MONTHS, COLUMN_WIDTH)
+
+// ── Overallocation warning (shared between modal and drag) ────────────────────
+function overallocationMonths(
+  personId: string,
+  startDate: string,
+  endDate: string,
+  pct: number,
+  excludeId: string | null,
+  allAllocations: Allocation[],
+): { month: string; total: number }[] {
+  if (!startDate || !endDate || startDate > endDate) return []
+  const months = monthsInRange(startDate, endDate)
+  return months.flatMap(m => {
+    const others = allAllocations.filter(a => a.person_id === personId && a.id !== excludeId)
+    const existingPct = others.reduce((sum, a) => sum + pctForAllocationInMonth(a, m), 0)
+    const total = existingPct + pct
+    return total > 100 ? [{ month: m, total: Math.round(total) }] : []
+  })
+}
+
+// ── Live monthly preview (modal) ──────────────────────────────────────────────
+function AllocationPreview({ startDate, endDate, pct }: { startDate: string; endDate: string; pct: number }) {
+  if (!startDate || !endDate || startDate > endDate || pct <= 0) return null
+  const rows = monthsInRange(startDate, endDate).map(m => ({
+    m, hrs: hoursForAllocationInMonth({ start_date: startDate, end_date: endDate, allocation_percentage: pct }, m),
+  }))
+  return (
+    <div style={{ marginTop: 12, padding: '10px 12px', background: BG_BASE, borderRadius: 6, border: `1px solid ${BORDER}` }}>
+      <div style={{ color: TEXT_SEC, fontSize: 11, marginBottom: 6, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        Hours per month
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {rows.map(({ m, hrs }) => (
+          <div key={m} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 58, padding: '4px 8px', background: BG_ELEVATED, borderRadius: 4 }}>
+            <div style={{ color: TEXT_MUTED, fontSize: 10 }}>{fmtMonth(m)}</div>
+            <div style={{ color: TEXT_PRIMARY, fontSize: 13, fontWeight: 600, fontFamily: 'DM Mono, monospace' }}>{hrs}h</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export function Timeline() {
   const { people, projects, allocations, customers,
           addAllocation, updateAllocation, deleteAllocation } = useStore()
-  const { roleById, projectById, customerById,
-          utilizationForPersonMonth, workingDaysInMonth } = useDerived()
+  const { roleById, projectById, customerById, utilizationForPersonMonth } = useDerived()
 
-  // ── Modal state (unchanged) ──────────────────────────────────────────────
-  const [isModalOpen,      setIsModalOpen]      = useState(false)
-  const [editingAlloc,     setEditingAlloc]      = useState<Allocation | null>(null)
-  const [currentPerson,    setCurrentPerson]     = useState<Person | null>(null)
-  const [currentMonth,     setCurrentMonth]      = useState('')
-  const [projectId,        setProjectId]         = useState('')
-  const [pct,              setPct]               = useState(0)
-  const [hoursPerDay,      setHoursPerDay]       = useState(0)
-  const [confirmed,        setConfirmed]         = useState(true)
-  const [filterCustomer,   setFilterCustomer]    = useState<string | 'all'>('all')
+  // ── Modal state ──────────────────────────────────────────────────────────
+  const [isModalOpen,    setIsModalOpen]  = useState(false)
+  const [editingAlloc,   setEditingAlloc] = useState<Allocation | null>(null)
+  const [currentPerson,  setCurrentPerson] = useState<Person | null>(null)
+  const [startDate,      setStartDate]    = useState('')
+  const [endDate,        setEndDate]      = useState('')
+  const [pct,            setPct]          = useState(100)
+  const [projectId,      setProjectId]    = useState('')
+  const [confirmed,      setConfirmed]    = useState(true)
+  const [filterCustomer, setFilterCustomer] = useState<string | 'all'>('all')
 
   // ── Drag state ───────────────────────────────────────────────────────────
-  const dragStartRef   = useRef<DragStart | null>(null)
-  const [dragVisual,   setDragVisual]  = useState<DragVisual | null>(null)
-  const dragVisualRef  = useRef<DragVisual | null>(null)
-  dragVisualRef.current = dragVisual   // always-current ref (no stale closure)
+  const dragStartRef  = useRef<DragStart | null>(null)
+  const [dragVisual, setDragVisual] = useState<DragVisual | null>(null)
+  const dragVisualRef = useRef<DragVisual | null>(null)
+  dragVisualRef.current = dragVisual
 
-  // Keep always-current refs to store values used inside once-attached listeners
-  const allocationsRef       = useRef(allocations)
-  allocationsRef.current     = allocations
-  const updateAllocationRef  = useRef(updateAllocation)
-  updateAllocationRef.current = updateAllocation
+  const allocationsRef      = useRef(allocations)
+  allocationsRef.current    = allocations
+  const updateAllocRef      = useRef(updateAllocation)
+  updateAllocRef.current    = updateAllocation
+  const suppressClick       = useRef(false)
+  const scrollRef           = useRef<HTMLDivElement>(null)
 
-  // ── Flash / toast state ──────────────────────────────────────────────────
+  // ── Flash / toast ────────────────────────────────────────────────────────
   const [flashId, setFlashId] = useState<string | null>(null)
   const [toast,   setToast]   = useState<ToastData | null>(null)
-
-  const showToast = (kind: ToastData['kind'], msg: string) => {
-    setToast({ kind, msg })
-    setTimeout(() => setToast(null), 2800)
-  }
-  const flashBar = (id: string) => {
-    setFlashId(id)
-    setTimeout(() => setFlashId(null), 700)
-  }
-
-  // ── Hover state (for resize-handle visibility) ───────────────────────────
   const [hoveredId, setHoveredId] = useState<string | null>(null)
 
-  // ── Suppress click after drag ────────────────────────────────────────────
-  const suppressClick = useRef(false)
+  const showToast = (kind: ToastData['kind'], msg: string) => {
+    setToast({ kind, msg }); setTimeout(() => setToast(null), 2800)
+  }
+  const flashBar = (id: string) => {
+    setFlashId(id); setTimeout(() => setFlashId(null), 700)
+  }
 
-  // ── Scrollable-right-pane ref (for month-index calculation during move) ──
-  const scrollRef = useRef<HTMLDivElement>(null)
-
-  // ── Document-level listeners — attached once ─────────────────────────────
+  // ── Document-level drag listeners (attached once) ────────────────────────
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       const d = dragStartRef.current
       if (!d) return
-
-      // Activate drag only after threshold
       if (!d.moved) {
         if (Math.abs(e.clientX - d.startX) < DRAG_THRESH) return
         d.moved = true
       }
 
-      const deltaX = e.clientX - d.startX
+      const pane    = scrollRef.current
+      const rect    = pane?.getBoundingClientRect()
+      const xInPane = pane ? e.clientX - (rect?.left ?? 0) + pane.scrollLeft : e.clientX
 
       if (d.type === 'resize-right') {
-        const pct = snapPct(d.startPct + (deltaX / COLUMN_WIDTH) * 100)
-        setDragVisual({ allocId: d.alloc.id, personId: d.personId, type: 'resize-right', pct, monthIdx: d.originalMonthIdx, tooltipX: e.clientX, tooltipY: e.clientY })
+        // Right handle → update end_date
+        const rawEndPx   = d.origEndPx + (xInPane - (d.origEndPx + (pane?.getBoundingClientRect().left ?? 0)))
+        // Actually: the right edge in pane coords = origEndPx + deltaX
+        const deltaX     = xInPane - (d.origStartPx + (d.origEndPx - d.origStartPx) + (e.clientX - d.startX - (xInPane - (d.origEndPx + (e.clientX - d.startX)))))
+
+        // Simpler: track delta from mousedown
+        const delta      = e.clientX - d.startX
+        const newEndPxRaw = d.origEndPx + delta
+        const newEndPx   = Math.max(d.origStartPx + COLUMN_WIDTH / 31, Math.min(newEndPxRaw, MONTHS.length * COLUMN_WIDTH))
+        // Convert to date: end_date is one day before the pixel position
+        const nextDay    = pxToDate(newEndPx)
+        const newEnd     = toDateStr(new Date(nextDay.getTime() - 86_400_000))
+        const finalEnd   = newEnd < d.origStartDate ? d.origStartDate : newEnd
+
+        setDragVisual({ allocId: d.alloc.id, personId: d.personId, type: 'resize-right',
+          previewStartPx: d.origStartPx, previewEndPx: Math.max(d.origStartPx + 4, newEndPx),
+          previewStart: d.origStartDate, previewEnd: finalEnd,
+          tooltipX: e.clientX, tooltipY: e.clientY })
+
       } else if (d.type === 'resize-left') {
-        const pct = snapPct(d.startPct - (deltaX / COLUMN_WIDTH) * 100)
-        setDragVisual({ allocId: d.alloc.id, personId: d.personId, type: 'resize-left', pct, monthIdx: d.originalMonthIdx, tooltipX: e.clientX, tooltipY: e.clientY })
+        // Left handle → update start_date
+        const delta        = e.clientX - d.startX
+        const newStartPxRaw = d.origStartPx + delta
+        const newStartPx   = Math.max(0, Math.min(newStartPxRaw, d.origEndPx - COLUMN_WIDTH / 31))
+        const newStart     = toDateStr(pxToDate(newStartPx))
+        const finalStart   = newStart > d.origEndDate ? d.origEndDate : newStart
+
+        setDragVisual({ allocId: d.alloc.id, personId: d.personId, type: 'resize-left',
+          previewStartPx: Math.min(newStartPx, d.origEndPx - 4), previewEndPx: d.origEndPx,
+          previewStart: finalStart, previewEnd: d.origEndDate,
+          tooltipX: e.clientX, tooltipY: e.clientY })
+
       } else {
-        // move — derive target month from absolute mouse X inside the scroll pane
-        const pane = scrollRef.current
-        if (!pane) return
-        const rect     = pane.getBoundingClientRect()
-        const xInPane  = e.clientX - rect.left + pane.scrollLeft
-        const monthIdx = Math.max(0, Math.min(MONTHS.length - 1, Math.floor(xInPane / COLUMN_WIDTH)))
-        setDragVisual({ allocId: d.alloc.id, personId: d.personId, type: 'move', pct: d.startPct, monthIdx, tooltipX: e.clientX, tooltipY: e.clientY })
+        // Move — shift both dates by delta
+        const delta        = e.clientX - d.startX
+        const newStartPxRaw = d.origStartPx + delta
+        const clampedStart = Math.max(0, Math.min(newStartPxRaw, MONTHS.length * COLUMN_WIDTH - (d.origEndPx - d.origStartPx)))
+        const newStartDate = toDateStr(pxToDate(clampedStart))
+        const newEndDate   = addDays(newStartDate, d.durationDays)
+
+        setDragVisual({ allocId: d.alloc.id, personId: d.personId, type: 'move',
+          previewStartPx: clampedStart,
+          previewEndPx:   clampedStart + (d.origEndPx - d.origStartPx),
+          previewStart: newStartDate, previewEnd: newEndDate,
+          tooltipX: e.clientX, tooltipY: e.clientY })
       }
     }
 
@@ -146,160 +233,159 @@ export function Timeline() {
       dragStartRef.current = null
 
       if (!d || !d.moved || !visual) {
-        // Was just a click — clear any partial visual but don't suppress click
-        setDragVisual(null)
-        return
+        setDragVisual(null); return
       }
 
-      // It was a real drag — suppress the subsequent click event
       suppressClick.current = true
       setDragVisual(null)
 
-      const allocs = allocationsRef.current
-      const update = updateAllocationRef.current
+      const newStart = visual.previewStart
+      const newEnd   = visual.previewEnd
 
-      if (visual.type === 'move') {
-        const newMonth = MONTHS[visual.monthIdx]
-        if (newMonth === d.alloc.month) return   // no-op
+      if (newStart === d.origStartDate && newEnd === d.origEndDate) return  // no change
 
-        // Conflict: same person already has an allocation from this project in target month
-        const sameProject = allocs.find(a =>
-          a.id !== d.alloc.id &&
-          a.person_id === d.personId &&
-          a.month === newMonth &&
-          a.project_id === d.alloc.project_id,
-        )
-        if (sameProject) {
-          showToast('warn', `Already allocated to this project in ${fmtMonthLong(newMonth)}`)
-          return
-        }
+      // Warn (don't block) if over-allocation results
+      const warnings = overallocationMonths(
+        d.personId, newStart, newEnd, d.alloc.allocation_percentage,
+        d.alloc.id, allocationsRef.current,
+      )
+      if (warnings.length > 0) {
+        showToast('warn', `Over 100% in ${warnings.map(w => fmtMonth(w.month)).join(', ')}`)
+      }
 
-        // Conflict: total would exceed 100 %
-        const otherTotal = allocs
-          .filter(a => a.id !== d.alloc.id && a.person_id === d.personId && a.month === newMonth)
-          .reduce((s, a) => s + a.pct, 0)
-        if (otherTotal + d.alloc.pct > 100) {
-          showToast('warn', `This person is already allocated in ${fmtMonthLong(newMonth)}`)
-          return
-        }
-
-        update({ ...d.alloc, month: newMonth })
-        flashBar(d.alloc.id)
-        showToast('success', `Moved to ${fmtMonth(newMonth)}`)
-      } else {
-        // resize
-        const newPct = visual.pct
-        if (newPct === d.alloc.pct) return   // no change
-
-        // Conflict: total would exceed 100 %
-        const otherTotal = allocs
-          .filter(a => a.id !== d.alloc.id && a.person_id === d.personId && a.month === d.alloc.month)
-          .reduce((s, a) => s + a.pct, 0)
-        if (otherTotal + newPct > 100) {
-          showToast('warn', `Total would exceed 100 % in ${fmtMonthLong(d.alloc.month)}`)
-          return
-        }
-
-        update({ ...d.alloc, pct: newPct })
-        flashBar(d.alloc.id)
-        showToast('success', `Updated to ${newPct}%`)
+      updateAllocRef.current({ ...d.alloc, start_date: newStart, end_date: newEnd })
+      flashBar(d.alloc.id)
+      if (warnings.length === 0) {
+        const label = d.type === 'move'
+          ? `${fmtDateShort(newStart)} – ${fmtDateShort(newEnd)}`
+          : d.type === 'resize-right' ? `Ends ${fmtDateShort(newEnd)}` : `Starts ${fmtDateShort(newStart)}`
+        showToast('success', label)
       }
     }
 
     document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup',   onUp)
+    document.addEventListener('mouseup', onUp)
     return () => {
       document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup',   onUp)
+      document.removeEventListener('mouseup', onUp)
     }
-  }, [])  // attach once — latest data always accessed via refs
+  }, [])
 
   // ── Drag initiators ──────────────────────────────────────────────────────
-  const startMove = (e: React.MouseEvent, alloc: Allocation, personId: string, monthIdx: number) => {
+  const startMove = (e: React.MouseEvent, alloc: Allocation, personId: string) => {
     if (e.button !== 0) return
     e.preventDefault()
+    const startPx = dateToPx(parseDate(alloc.start_date))
+    const endPx   = endDateToPx(alloc.end_date)
     dragStartRef.current = {
       type: 'move', alloc, personId,
-      startX: e.clientX, startPct: alloc.pct,
-      originalMonthIdx: monthIdx, moved: false,
+      startX: e.clientX,
+      origStartDate: alloc.start_date, origEndDate: alloc.end_date,
+      origStartPx: startPx, origEndPx: endPx,
+      durationDays: durationDays(alloc.start_date, alloc.end_date),
+      moved: false,
     }
   }
 
-  const startResize = (e: React.MouseEvent, type: 'resize-left' | 'resize-right', alloc: Allocation, personId: string, monthIdx: number) => {
+  const startResize = (
+    e: React.MouseEvent, type: 'resize-left' | 'resize-right',
+    alloc: Allocation, personId: string,
+  ) => {
     if (e.button !== 0) return
     e.preventDefault()
-    e.stopPropagation()   // don't bubble to bar (would trigger openEditModal on click)
+    e.stopPropagation()
+    const startPx = dateToPx(parseDate(alloc.start_date))
+    const endPx   = endDateToPx(alloc.end_date)
     dragStartRef.current = {
       type, alloc, personId,
-      startX: e.clientX, startPct: alloc.pct,
-      originalMonthIdx: monthIdx, moved: false,
+      startX: e.clientX,
+      origStartDate: alloc.start_date, origEndDate: alloc.end_date,
+      origStartPx: startPx, origEndPx: endPx,
+      durationDays: durationDays(alloc.start_date, alloc.end_date),
+      moved: false,
     }
   }
 
-  // ── Modal helpers (unchanged) ────────────────────────────────────────────
+  // ── Modal helpers ────────────────────────────────────────────────────────
   const openAddModal = (person: Person, month: string) => {
     setEditingAlloc(null)
     setCurrentPerson(person)
-    setCurrentMonth(month)
+    setStartDate(toDateStr(calcMonthStart(month)))
+    setEndDate(toDateStr(calcMonthEnd(month)))
     setProjectId(projects[0]?.id || '')
-    setPct(0); setConfirmed(true)
+    setPct(100)
+    setConfirmed(true)
     setIsModalOpen(true)
   }
 
   const openEditModal = (alloc: Allocation) => {
     setEditingAlloc(alloc)
     setCurrentPerson(people.find(p => p.id === alloc.person_id) || null)
-    setCurrentMonth(alloc.month)
+    setStartDate(alloc.start_date)
+    setEndDate(alloc.end_date)
     setProjectId(alloc.project_id)
-    setPct(alloc.pct)
+    setPct(alloc.allocation_percentage)
     setConfirmed(alloc.confirmed)
     setIsModalOpen(true)
   }
 
   const handleSave = () => {
-    if (!currentPerson) return
-    const base = { person_id: currentPerson.id, month: currentMonth, project_id: projectId, pct, confirmed }
-    editingAlloc ? updateAllocation({ ...editingAlloc, ...base }) : addAllocation(base)
+    if (!currentPerson || !startDate || !endDate || startDate > endDate) return
+    const base = {
+      person_id: currentPerson.id,
+      project_id: projectId,
+      start_date: startDate,
+      end_date: endDate,
+      allocation_percentage: pct,
+      confirmed,
+    }
+    editingAlloc
+      ? updateAllocation({ ...editingAlloc, ...base })
+      : addAllocation(base)
     setIsModalOpen(false)
   }
 
-  const handleDeleteAllocation = (id: string) => {
+  const handleDelete = (id: string) => {
     if (window.confirm('Delete this allocation?')) { deleteAllocation(id); setIsModalOpen(false) }
   }
 
-  React.useEffect(() => { setHoursPerDay((pct / 100) * 8) }, [pct])
-  React.useEffect(() => { setPct((hoursPerDay / 8) * 100)  }, [hoursPerDay])
-
   // ── Helpers ──────────────────────────────────────────────────────────────
   const getCustomerColor = (projId: string) => {
-    const proj = projectById(projId)
-    if (!proj) return BORDER
-    return customerById(proj.customer_id)?.color || BORDER
+    const p = projectById(projId); if (!p) return BORDER
+    return customerById(p.customer_id)?.color ?? BORDER
   }
 
   const filteredPeople = people.filter(person => {
     if (filterCustomer === 'all') return true
-    return allocations.some(a => {
-      if (a.person_id !== person.id) return false
-      return projectById(a.project_id)?.customer_id === filterCustomer
-    })
+    return allocations.some(a => a.person_id === person.id &&
+      projectById(a.project_id)?.customer_id === filterCustomer)
   })
 
-  // Whether any drag is active (disables pointer-events on non-dragged bars)
+  // Over-allocation warnings for the open modal
+  const modalWarnings = useMemo(() => {
+    if (!isModalOpen || !currentPerson || !startDate || !endDate || startDate > endDate) return []
+    return overallocationMonths(currentPerson.id, startDate, endDate, pct, editingAlloc?.id ?? null, allocations)
+  }, [isModalOpen, currentPerson, startDate, endDate, pct, editingAlloc, allocations])
+
   const dragging = dragVisual !== null
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '8px', background: BG_ELEVATED,
+    border: `1px solid ${BORDER}`, borderRadius: 4, color: TEXT_PRIMARY,
+    colorScheme: 'dark',
+  }
 
   return (
     <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 48px)' }}>
 
-      {/* ── Page header + filter (unchanged) ───────────────────────────── */}
+      {/* ── Page header ──────────────────────────────────────────────────── */}
       <div className="page-header" style={{ marginBottom: '16px' }}>
         <h2 style={{ color: TEXT_PRIMARY }}>Timeline</h2>
         <div>
-          <label style={{ color: TEXT_SEC, marginRight: '8px' }}>Filter by Customer:</label>
+          <label style={{ color: TEXT_SEC, marginRight: '8px' }}>Filter:</label>
           <select
             value={filterCustomer}
             onChange={e => setFilterCustomer(e.target.value)}
-            style={{ padding: '6px 12px', background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }}
+            style={{ padding: '6px 12px', background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: 4, color: TEXT_PRIMARY }}
           >
             <option value="all">All Customers</option>
             {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -308,271 +394,279 @@ export function Timeline() {
       </div>
 
       {/* ── Grid ─────────────────────────────────────────────────────────── */}
-      <div style={{ flex: 1, overflow: 'auto', background: BG_BASE, borderRadius: '8px' }}>
+      <div style={{ flex: 1, overflow: 'auto', background: BG_BASE, borderRadius: 8 }}>
         <div style={{ display: 'flex', minWidth: 'fit-content' }}>
 
           {/* Sticky left column */}
-          <div style={{ width: '180px', flexShrink: 0, position: 'sticky', left: 0, zIndex: 10, background: BG_SURFACE, borderRight: `1px solid ${BORDER}` }}>
-            <div style={{ height: '40px', padding: '0 12px', display: 'flex', alignItems: 'center', color: TEXT_SEC, borderBottom: `1px solid ${BORDER}` }}>Name / Role</div>
+          <div style={{ width: 180, flexShrink: 0, position: 'sticky', left: 0, zIndex: 10, background: BG_SURFACE, borderRight: `1px solid ${BORDER}` }}>
+            <div style={{ height: 40, padding: '0 12px', display: 'flex', alignItems: 'center', color: TEXT_SEC, borderBottom: `1px solid ${BORDER}` }}>Name / Role</div>
             {filteredPeople.map(person => (
               <React.Fragment key={person.id}>
-                <div style={{ height: '32px', padding: '0 12px', display: 'flex', alignItems: 'center', color: TEXT_PRIMARY, borderBottom: `1px solid ${BORDER}`, fontWeight: 500 }}>{person.name}</div>
-                <div style={{ padding: '2px 12px 4px', display: 'flex', flexDirection: 'column', gap: 1, borderBottom: `1px solid ${BORDER}` }}>
-                  <span style={{ color: TEXT_SEC, fontSize: 11 }}>{roleById(person.role_id)?.name}</span>
-                  <span style={{ color: '#55555F', fontSize: 10 }}>{person.department}</span>
+                <div style={{ height: 36, padding: '0 12px', display: 'flex', alignItems: 'center', color: TEXT_PRIMARY, borderBottom: `1px solid ${BORDER}`, fontWeight: 500 }}>{person.name}</div>
+                <div style={{ padding: '2px 12px 4px', borderBottom: `1px solid ${BORDER}` }}>
+                  <div style={{ color: TEXT_SEC, fontSize: 11 }}>{roleById(person.role_id)?.name}</div>
+                  <div style={{ color: TEXT_MUTED, fontSize: 10 }}>{person.department}</div>
                 </div>
               </React.Fragment>
             ))}
           </div>
 
           {/* Scrollable right pane */}
-          <div ref={scrollRef} style={{ flex: 1, overflowX: 'auto' }}>
+          <div ref={scrollRef} style={{ flex: 1, overflowX: 'auto', cursor: dragging ? 'grabbing' : 'default' }}>
 
             {/* Month headers */}
             <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}` }}>
               {MONTHS.map(month => (
-                <div key={month} style={{ minWidth: `${COLUMN_WIDTH}px`, width: `${COLUMN_WIDTH}px`, height: '40px', padding: '0 12px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: BG_SURFACE, color: TEXT_SEC, borderLeft: `1px solid ${BORDER}` }}>
+                <div key={month} style={{ minWidth: COLUMN_WIDTH, width: COLUMN_WIDTH, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', background: BG_SURFACE, color: TEXT_SEC, borderLeft: `1px solid ${BORDER}` }}>
                   {fmtMonth(month)}
                 </div>
               ))}
             </div>
 
             {/* Person rows */}
-            {filteredPeople.map(person => (
-              <React.Fragment key={person.id}>
+            {filteredPeople.map(person => {
+              const personAllocs = allocations.filter(a => a.person_id === person.id)
 
-                {/* Allocation row */}
-                <div style={{ display: 'flex', height: '32px', borderBottom: `1px solid ${BORDER}` }}>
-                  {MONTHS.map((month, mIdx) => {
-                    const { allocs } = utilizationForPersonMonth(person.id, month)
+              return (
+                <React.Fragment key={person.id}>
 
-                    // Is this the target cell for an in-flight move?
-                    const isMoveTarget = dragVisual?.type === 'move' &&
-                      dragVisual.personId === person.id &&
-                      dragVisual.monthIdx === mIdx
-
-                    // The alloc being moved (for preview rendering in target cell)
-                    const movedAlloc = isMoveTarget
-                      ? allocations.find(a => a.id === dragVisual!.allocId)
-                      : null
-
-                    return (
+                  {/* ── Allocation row — bars are absolute overlays ── */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      height: 36,
+                      borderBottom: `1px solid ${BORDER}`,
+                      position: 'relative',   // ← bars position against this
+                    }}
+                  >
+                    {/* Background month cells — grid lines + click-to-add */}
+                    {MONTHS.map((month, mIdx) => (
                       <div
                         key={month}
-                        style={{ minWidth: `${COLUMN_WIDTH}px`, width: `${COLUMN_WIDTH}px`, position: 'relative', background: BG_ELEVATED, borderLeft: `1px solid ${BORDER}`, cursor: dragging ? 'grabbing' : 'pointer' }}
-                        onClick={() => { if (!dragging) openAddModal(person, month) }}
-                      >
-                        {/* Existing alloc bars */}
-                        {allocs.map(alloc => {
-                          const project        = projectById(alloc.project_id)
-                          const color          = getCustomerColor(alloc.project_id)
-                          const isTentative    = project?.status === 'tentative'
-                          const isDragged      = dragVisual?.allocId === alloc.id
-                          const isResizing     = isDragged && dragVisual?.type !== 'move'
-                          const isMoving       = isDragged && dragVisual?.type === 'move'
-                          const displayPct     = isResizing ? dragVisual!.pct : alloc.pct
-                          const isFlashing     = flashId === alloc.id
-                          const isHovered      = hoveredId === alloc.id
-                          const showHandles    = (isHovered || isDragged) && !isMoving
+                        style={{
+                          minWidth: COLUMN_WIDTH, width: COLUMN_WIDTH, height: '100%',
+                          background: BG_ELEVATED,
+                          borderLeft: `1px solid ${BORDER}`,
+                          flexShrink: 0,
+                          cursor: dragging ? 'grabbing' : 'crosshair',
+                        }}
+                        onClick={() => {
+                          if (dragging || suppressClick.current) { suppressClick.current = false; return }
+                          openAddModal(person, month)
+                        }}
+                      />
+                    ))}
 
-                          return (
-                            <div
-                              key={alloc.id}
-                              onMouseEnter={() => setHoveredId(alloc.id)}
-                              onMouseLeave={() => setHoveredId(null)}
-                              onMouseDown={e => startMove(e, alloc, person.id, mIdx)}
-                              onClick={e => {
-                                e.stopPropagation()
-                                if (suppressClick.current) { suppressClick.current = false; return }
-                                openEditModal(alloc)
-                              }}
-                              style={{
-                                position: 'absolute',
-                                top: 2, bottom: 2,
-                                left: 0,
-                                width: `${displayPct}%`,
-                                minWidth: displayPct > 0 ? 4 : 0,
-                                borderRadius: '4px',
-                                background: color,
-                                display: 'flex',
-                                alignItems: 'center',
-                                padding: '0 10px',
-                                fontSize: '11px',
-                                overflow: 'hidden',
-                                whiteSpace: 'nowrap',
-                                textOverflow: 'ellipsis',
-                                color: 'rgba(0,0,0,0.8)',
-                                border: isTentative ? '2px dashed rgba(255,255,255,0.3)' : 'none',
-                                opacity: isMoving ? 0.25 : isTentative ? 0.6 : 1,
-                                cursor: isMoving ? 'grabbing' : showHandles ? 'grab' : 'pointer',
-                                // Glow while resizing/dragging
-                                boxShadow: isResizing
-                                  ? '0 0 0 2px rgba(255,255,255,0.55), 0 4px 14px rgba(0,0,0,0.55)'
-                                  : isFlashing
-                                    ? `0 0 0 2px ${ACCENT}, 0 0 12px ${ACCENT}55`
-                                    : 'none',
-                                transition: isFlashing ? 'box-shadow 0.1s' : 'width 0.05s, opacity 0.1s',
-                                zIndex: isDragged ? 10 : 1,
-                                userSelect: 'none',
-                              }}
-                            >
-                              {/* Left resize handle */}
-                              <div
-                                onMouseDown={e => startResize(e, 'resize-left', alloc, person.id, mIdx)}
-                                style={{
-                                  position: 'absolute', left: 0, top: 0, bottom: 0,
-                                  width: showHandles ? 7 : 0,
-                                  background: showHandles ? 'rgba(255,255,255,0.30)' : 'transparent',
-                                  cursor: 'col-resize',
-                                  borderRadius: '4px 0 0 4px',
-                                  transition: 'width 0.1s, background 0.1s',
-                                  zIndex: 2,
-                                }}
-                              />
+                    {/* Allocation bars (absolute-positioned overlay) */}
+                    {personAllocs.map((alloc, aIdx) => {
+                      const isDragged = dragVisual?.allocId === alloc.id
+                      const visual    = isDragged ? dragVisual! : null
 
-                              {/* Label */}
-                              <span style={{ paddingLeft: showHandles ? 8 : 0, pointerEvents: 'none', flexShrink: 0 }}>
-                                {project?.name.substring(0, 3)}{(project?.name?.length ?? 0) > 3 ? '.' : ''} {displayPct}%
-                              </span>
+                      const leftPx  = visual ? visual.previewStartPx : dateToPx(parseDate(alloc.start_date))
+                      const rightPx = visual ? visual.previewEndPx   : endDateToPx(alloc.end_date)
+                      const widthPx = Math.max(8, rightPx - leftPx)
 
-                              {/* Right resize handle */}
-                              <div
-                                onMouseDown={e => startResize(e, 'resize-right', alloc, person.id, mIdx)}
-                                style={{
-                                  position: 'absolute', right: 0, top: 0, bottom: 0,
-                                  width: showHandles ? 7 : 0,
-                                  background: showHandles ? 'rgba(255,255,255,0.30)' : 'transparent',
-                                  cursor: 'col-resize',
-                                  borderRadius: '0 4px 4px 0',
-                                  transition: 'width 0.1s, background 0.1s',
-                                  zIndex: 2,
-                                }}
-                              />
-                            </div>
-                          )
-                        })}
+                      // Clamp to visible range
+                      const visLeft  = Math.max(0, leftPx)
+                      const visRight = Math.min(MONTHS.length * COLUMN_WIDTH, rightPx)
+                      if (visLeft >= visRight) return null
 
-                        {/* Move-preview ghost in target month */}
-                        {movedAlloc && movedAlloc.month !== month && (
+                      const color      = getCustomerColor(alloc.project_id)
+                      const project    = projectById(alloc.project_id)
+                      const isTentative = project?.status === 'tentative'
+                      const isFlashing  = flashId === alloc.id
+                      const isHovered   = hoveredId === alloc.id
+                      const showHandles = (isHovered || isDragged) && !dragging
+                      const TOP_OFFSET  = 2 + aIdx * 0   // could stack if needed
+
+                      return (
+                        <div
+                          key={alloc.id}
+                          onMouseEnter={() => setHoveredId(alloc.id)}
+                          onMouseLeave={() => setHoveredId(null)}
+                          onMouseDown={e => startMove(e, alloc, person.id)}
+                          onClick={e => {
+                            e.stopPropagation()
+                            if (suppressClick.current) { suppressClick.current = false; return }
+                            openEditModal(alloc)
+                          }}
+                          style={{
+                            position: 'absolute',
+                            left:     visLeft,
+                            width:    Math.max(8, visRight - visLeft),
+                            top:      2,
+                            bottom:   2,
+                            zIndex:   isDragged ? 10 : 2,
+                            borderRadius: 4,
+                            background: color,
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '0 8px',
+                            fontSize: 11,
+                            overflow: 'hidden',
+                            whiteSpace: 'nowrap',
+                            textOverflow: 'ellipsis',
+                            color: 'rgba(0,0,0,0.85)',
+                            border: isTentative ? '2px dashed rgba(255,255,255,0.3)' : 'none',
+                            opacity: isDragged ? 0.85 : isTentative ? 0.65 : 1,
+                            cursor: 'grab',
+                            boxShadow: isFlashing
+                              ? `0 0 0 2px ${ACCENT}, 0 0 12px ${ACCENT}55`
+                              : isDragged
+                                ? '0 0 0 2px rgba(255,255,255,0.5), 0 4px 14px rgba(0,0,0,0.6)'
+                                : 'none',
+                            transition: isFlashing ? 'box-shadow 0.1s' : 'left 0.04s, width 0.04s',
+                            userSelect: 'none',
+                          }}
+                        >
+                          {/* Left resize handle */}
                           <div
+                            onMouseDown={e => startResize(e, 'resize-left', alloc, person.id)}
                             style={{
-                              position: 'absolute',
-                              top: 2, bottom: 2, left: 0,
-                              width: `${movedAlloc.pct}%`,
-                              borderRadius: '4px',
-                              background: getCustomerColor(movedAlloc.project_id),
-                              opacity: 0.45,
-                              border: '2px dashed rgba(255,255,255,0.5)',
-                              pointerEvents: 'none',
-                              zIndex: 5,
+                              position: 'absolute', left: 0, top: 0, bottom: 0,
+                              width: showHandles ? 7 : 4,
+                              background: showHandles ? 'rgba(0,0,0,0.25)' : 'transparent',
+                              cursor: 'col-resize',
+                              borderRadius: '4px 0 0 4px',
+                              transition: 'width 0.1s',
+                              zIndex: 3,
                             }}
                           />
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
 
-                {/* Capacity bar row (unchanged) */}
-                <div style={{ display: 'flex', height: '20px', borderBottom: `1px solid ${BORDER}` }}>
-                  {MONTHS.map(month => {
-                    const { totalPct } = utilizationForPersonMonth(person.id, month)
-                    const capColor = totalPct >= 100 ? RED : totalPct >= 80 ? AMBER : GREEN
-                    return (
-                      <div key={month} style={{ minWidth: `${COLUMN_WIDTH}px`, width: `${COLUMN_WIDTH}px`, background: BG_ELEVATED, borderLeft: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', padding: '0 8px', position: 'relative' }}>
-                        <div style={{ width: `${Math.min(totalPct, 100)}%`, height: '80%', background: capColor, borderRadius: '2px', position: 'absolute', left: 0, top: '10%' }} />
-                        <span style={{ fontSize: '11px', color: TEXT_PRIMARY, zIndex: 1, position: 'relative' }}>{totalPct}%</span>
-                      </div>
-                    )
-                  })}
-                </div>
+                          {/* Label */}
+                          <span style={{ paddingLeft: showHandles ? 4 : 0, pointerEvents: 'none', flexShrink: 0, fontSize: 10 }}>
+                            {project?.name.substring(0, 4)}{(project?.name?.length ?? 0) > 4 ? '.' : ''}
+                            {' '}{alloc.allocation_percentage}%
+                          </span>
 
-              </React.Fragment>
-            ))}
+                          {/* Right resize handle */}
+                          <div
+                            onMouseDown={e => startResize(e, 'resize-right', alloc, person.id)}
+                            style={{
+                              position: 'absolute', right: 0, top: 0, bottom: 0,
+                              width: showHandles ? 7 : 4,
+                              background: showHandles ? 'rgba(0,0,0,0.25)' : 'transparent',
+                              cursor: 'col-resize',
+                              borderRadius: '0 4px 4px 0',
+                              transition: 'width 0.1s',
+                              zIndex: 3,
+                            }}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* ── Capacity bar row ────────────────────────────────── */}
+                  <div style={{ display: 'flex', height: 20, borderBottom: `1px solid ${BORDER}` }}>
+                    {MONTHS.map(month => {
+                      const { totalPct } = utilizationForPersonMonth(person.id, month)
+                      const capColor = totalPct >= 100 ? RED : totalPct >= 80 ? AMBER : GREEN
+                      return (
+                        <div key={month} style={{ minWidth: COLUMN_WIDTH, width: COLUMN_WIDTH, background: BG_ELEVATED, borderLeft: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', position: 'relative', overflow: 'hidden' }}>
+                          <div style={{ position: 'absolute', left: 0, top: '10%', height: '80%', width: `${Math.min(totalPct, 100)}%`, background: capColor, borderRadius: 2, transition: 'width 0.2s' }} />
+                          <span style={{ fontSize: 10, color: TEXT_SEC, zIndex: 1, paddingLeft: 6 }}>{totalPct > 0 ? `${totalPct}%` : ''}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                </React.Fragment>
+              )
+            })}
           </div>
         </div>
       </div>
 
       {/* ── Drag tooltip ─────────────────────────────────────────────────── */}
       {dragVisual && (
-        <div
-          style={{
-            position: 'fixed',
-            left: dragVisual.tooltipX + 12,
-            top:  dragVisual.tooltipY - 36,
-            zIndex: 9999,
-            background: '#111111',
-            border: `1px solid ${dragVisual.type === 'move' ? '#22d3ee' : ACCENT}`,
-            borderRadius: 8,
-            padding: '5px 11px',
-            fontSize: 12,
-            fontFamily: 'DM Mono, monospace',
-            color: '#e5e5e5',
-            pointerEvents: 'none',
-            whiteSpace: 'nowrap',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
-          }}
-        >
-          {dragVisual.type === 'move'
-            ? `→ ${fmtMonthLong(MONTHS[dragVisual.monthIdx])}`
-            : `${dragVisual.pct}%  ·  ${fmtMonth(MONTHS[dragVisual.monthIdx])}`}
+        <div style={{
+          position: 'fixed',
+          left: dragVisual.tooltipX + 14, top: dragVisual.tooltipY - 40,
+          zIndex: 9999,
+          background: '#111',
+          border: `1px solid ${dragVisual.type === 'move' ? '#22d3ee' : ACCENT}`,
+          borderRadius: 8, padding: '5px 11px',
+          fontSize: 12, fontFamily: 'DM Mono, monospace', color: '#e5e5e5',
+          pointerEvents: 'none', whiteSpace: 'nowrap',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+        }}>
+          {dragVisual.type === 'resize-right'
+            ? `→ ${fmtDateShort(dragVisual.previewEnd)}`
+            : dragVisual.type === 'resize-left'
+              ? `← ${fmtDateShort(dragVisual.previewStart)}`
+              : `${fmtDateShort(dragVisual.previewStart)} – ${fmtDateShort(dragVisual.previewEnd)}`}
         </div>
       )}
 
       {/* ── Toast ────────────────────────────────────────────────────────── */}
       {toast && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: 28,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 9999,
-            background: toast.kind === 'success' ? '#0f2300' : toast.kind === 'warn' ? '#2a1800' : '#2a0000',
-            border: `1px solid ${toast.kind === 'success' ? ACCENT : toast.kind === 'warn' ? AMBER : RED}`,
-            borderRadius: 10,
-            padding: '10px 20px',
-            fontSize: 13,
-            fontFamily: 'Syne, sans-serif',
-            color: toast.kind === 'success' ? ACCENT : toast.kind === 'warn' ? AMBER : RED,
-            boxShadow: '0 4px 24px rgba(0,0,0,0.6)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            pointerEvents: 'none',
-          }}
-        >
+        <div style={{
+          position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 9999,
+          background: toast.kind === 'success' ? '#0f2300' : toast.kind === 'warn' ? '#2a1800' : '#2a0000',
+          border: `1px solid ${toast.kind === 'success' ? ACCENT : toast.kind === 'warn' ? AMBER : RED}`,
+          borderRadius: 10, padding: '10px 20px',
+          fontSize: 13, fontFamily: 'Syne, sans-serif',
+          color: toast.kind === 'success' ? ACCENT : toast.kind === 'warn' ? AMBER : RED,
+          boxShadow: '0 4px 24px rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'none',
+        }}>
           <span>{toast.kind === 'success' ? '✓' : toast.kind === 'warn' ? '⚠' : '✗'}</span>
           {toast.msg}
         </div>
       )}
 
-      {/* ── Modal (unchanged) ─────────────────────────────────────────────── */}
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingAlloc ? 'Edit Allocation' : 'Add Allocation'}>
+      {/* ── Allocation modal ────────────────────────────────────────────── */}
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingAlloc ? 'Edit Allocation' : 'New Allocation'}>
         <FormRow label="Person">
-          <input type="text" value={currentPerson?.name || ''} readOnly style={{ width: '100%', padding: '8px', background: BG_SURFACE, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }} />
-        </FormRow>
-        <FormRow label="Month">
-          <input type="text" value={currentMonth ? fmtMonth(currentMonth) : ''} readOnly style={{ width: '100%', padding: '8px', background: BG_SURFACE, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }} />
+          <input type="text" value={currentPerson?.name || ''} readOnly style={inputStyle} />
         </FormRow>
         <FormRow label="Project">
-          <select value={projectId} onChange={e => setProjectId(e.target.value)} style={{ width: '100%', padding: '8px', background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }}>
+          <select value={projectId} onChange={e => setProjectId(e.target.value)} style={inputStyle}>
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </FormRow>
-        <FormRow label="Percentage (0–100)">
-          <input type="number" value={pct} onChange={e => setPct(Number(e.target.value))} min={0} max={100} style={{ width: '100%', padding: '8px', background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }} />
+        <FormRow label="Start date">
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={inputStyle} />
         </FormRow>
-        <FormRow label="Hours / day (approx)">
-          <input type="number" value={hoursPerDay.toFixed(1)} onChange={e => setHoursPerDay(Number(e.target.value))} step={0.1} style={{ width: '100%', padding: '8px', background: BG_ELEVATED, border: `1px solid ${BORDER}`, borderRadius: '4px', color: TEXT_PRIMARY }} />
+        <FormRow label="End date">
+          <input type="date" value={endDate} min={startDate} onChange={e => setEndDate(e.target.value)} style={inputStyle} />
+        </FormRow>
+        {startDate && endDate && startDate > endDate && (
+          <div style={{ color: RED, fontSize: 12, marginBottom: 8 }}>End date must be after start date</div>
+        )}
+        <FormRow label="Allocation %">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="range" min={5} max={100} step={5} value={pct} onChange={e => setPct(Number(e.target.value))} style={{ flex: 1 }} />
+            <input type="number" min={1} max={100} value={pct} onChange={e => setPct(Math.max(1, Math.min(100, Number(e.target.value))))} style={{ ...inputStyle, width: 64 }} />
+            <span style={{ color: TEXT_SEC }}>%</span>
+          </div>
         </FormRow>
         <FormRow label="Confirmed">
-          <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} style={{ transform: 'scale(1.2)' }} />
+          <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} style={{ transform: 'scale(1.3)' }} />
         </FormRow>
+
+        <AllocationPreview startDate={startDate} endDate={endDate} pct={pct} />
+
+        {modalWarnings.length > 0 && (
+          <div style={{ marginTop: 8, padding: '8px 10px', background: 'rgba(251,191,36,0.1)', border: `1px solid ${AMBER}`, borderRadius: 6, color: AMBER, fontSize: 12 }}>
+            ⚠️ Over 100% in: {modalWarnings.map(w => `${fmtMonth(w.month)} (${w.total}%)`).join(', ')}
+          </div>
+        )}
+
         <ModalActions>
-          {editingAlloc && <button className="btn-danger" onClick={() => handleDeleteAllocation(editingAlloc.id)}>Delete</button>}
+          {editingAlloc && (
+            <button className="btn-danger" onClick={() => handleDelete(editingAlloc.id)}>Delete</button>
+          )}
           <button className="btn-ghost" onClick={() => setIsModalOpen(false)}>Cancel</button>
-          <button className="btn-primary" onClick={handleSave}>Save</button>
+          <button
+            className="btn-primary"
+            onClick={handleSave}
+            disabled={!startDate || !endDate || startDate > endDate}
+          >
+            Save
+          </button>
         </ModalActions>
       </Modal>
     </div>

@@ -56,8 +56,9 @@ export interface Allocation {
   id: string
   person_id: string
   project_id: string
-  month: string       // YYYY-MM
-  pct: number         // 0–100
+  start_date: string          // YYYY-MM-DD
+  end_date: string            // YYYY-MM-DD
+  allocation_percentage: number   // 0–100 integer
   confirmed: boolean
 }
 

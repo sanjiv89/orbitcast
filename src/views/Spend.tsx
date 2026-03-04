@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useStore, useDerived } from '../store'
-import type { Allocation, Customer, Project } from '../types'
+import type { Customer, Project } from '../types'
 
 const BG_BASE='#0D0D0F'
 const BG_SURFACE='#141416'
@@ -20,7 +20,7 @@ const fmtMoney = (n: number) => new Intl.NumberFormat('en-US',{style:'currency',
 
 export function Spend() {
   const { customers, projects, allocations } = useStore()
-  const { customerById, projectById, spendForAllocation, workingDaysInMonth } = useDerived()
+  const { customerById, projectById, spendForAllocation, spendForAllocationInMonth } = useDerived()
 
   const [viewBy, setViewBy] = useState<'customer' | 'project'>('customer')
 
@@ -40,22 +40,23 @@ export function Spend() {
         let totalConfirmed = 0
         let totalTentative = 0
 
-        MONTHS.forEach(month => {
-          monthlySpend[month] = { confirmed: 0, tentative: 0 }
-        })
+        MONTHS.forEach(month => { monthlySpend[month] = { confirmed: 0, tentative: 0 } })
 
         allocations.forEach(alloc => {
           const project = projectById(alloc.project_id)
-          if (project?.customer_id === customer.id) {
-            const spend = spendForAllocation(alloc)
+          if (project?.customer_id !== customer.id) return
+          // Distribute this allocation's spend across the months it overlaps
+          MONTHS.forEach(month => {
+            const spend = spendForAllocationInMonth(alloc, month)
+            if (spend === 0) return
             if (alloc.confirmed) {
-              monthlySpend[alloc.month].confirmed += spend
+              monthlySpend[month].confirmed += spend
               totalConfirmed += spend
             } else {
-              monthlySpend[alloc.month].tentative += spend
+              monthlySpend[month].tentative += spend
               totalTentative += spend
             }
-          }
+          })
         })
         return { id: customer.id, name: customer.name, color: customer.color, monthlySpend, totalConfirmed, totalTentative }
       })
@@ -66,21 +67,21 @@ export function Spend() {
         let totalConfirmed = 0
         let totalTentative = 0
 
-        MONTHS.forEach(month => {
-          monthlySpend[month] = { confirmed: 0, tentative: 0 }
-        })
+        MONTHS.forEach(month => { monthlySpend[month] = { confirmed: 0, tentative: 0 } })
 
         allocations.forEach(alloc => {
-          if (alloc.project_id === project.id) {
-            const spend = spendForAllocation(alloc)
+          if (alloc.project_id !== project.id) return
+          MONTHS.forEach(month => {
+            const spend = spendForAllocationInMonth(alloc, month)
+            if (spend === 0) return
             if (alloc.confirmed) {
-              monthlySpend[alloc.month].confirmed += spend
+              monthlySpend[month].confirmed += spend
               totalConfirmed += spend
             } else {
-              monthlySpend[alloc.month].tentative += spend
+              monthlySpend[month].tentative += spend
               totalTentative += spend
             }
-          }
+          })
         })
         return { id: project.id, name: project.name, color: customer?.color || BORDER, monthlySpend, totalConfirmed, totalTentative }
       })

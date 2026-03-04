@@ -371,11 +371,12 @@ export const useStore = () => {
   return ctx
 }
 
-// ── Derived helpers (unchanged) ───────────────────────────────────────────────
+// ── Derived helpers ───────────────────────────────────────────────────────────
 
 export function useDerived() {
   const s = useStore()
 
+  // Basic look-ups
   const customerById  = (id: string) => s.customers.find(c => c.id === id)
   const roleById      = (id: string) => s.roles.find(r => r.id === id)
   const personById    = (id: string) => s.people.find(p => p.id === id)
@@ -387,22 +388,107 @@ export function useDerived() {
     return roleById(person.role_id)?.hourly_rate ?? 0
   }
 
-  const workingDaysInMonth = (yyyyMM: string) => {
-    const [y, m] = yyyyMM.split('-').map(Number)
-    const daysInMonth = new Date(y, m, 0).getDate()
-    let weekdays = 0
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dow = new Date(y, m - 1, d).getDay()
-      if (dow !== 0 && dow !== 6) weekdays++
-    }
-    return weekdays
+  // ── Date-range calculation helpers ────────────────────────────────────────
+
+  /** Count Mon–Fri weekdays in [start, end] inclusive */
+  const countWorkingDays = (start: Date, end: Date): number => {
+    const s = new Date(start); s.setHours(0, 0, 0, 0)
+    const e = new Date(end);   e.setHours(0, 0, 0, 0)
+    if (s > e) return 0
+    const total   = Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1
+    const weeks   = Math.floor(total / 7)
+    const rem     = total % 7
+    const startDow = s.getDay()
+    let wd = weeks * 5
+    for (let i = 0; i < rem; i++) { const d = (startDow + i) % 7; if (d !== 0 && d !== 6) wd++ }
+    return wd
   }
 
-  const spendForAllocation = (a: Allocation) => {
-    const rate = rateForPerson(a.person_id)
-    const days = workingDaysInMonth(a.month)
-    return (days / 5) * 40 * (a.pct / 100) * rate
+  /**
+   * Effective HOURS an allocation contributes to a YYYY-MM month.
+   * Uses working-day overlap formula:
+   *   (overlap working days / total working days in month) × 160h × (pct / 100)
+   */
+  const hoursForAllocationInMonth = (a: Allocation, monthStr: string, capacityH = 160): number => {
+    const [y, m]     = monthStr.split('-').map(Number)
+    const ms         = new Date(y, m - 1, 1)
+    const me         = new Date(y, m, 0)
+    const as_        = new Date(a.start_date + 'T00:00:00')
+    const ae         = new Date(a.end_date   + 'T00:00:00')
+    const os         = new Date(Math.max(as_.getTime(), ms.getTime()))
+    const oe         = new Date(Math.min(ae.getTime(),  me.getTime()))
+    if (os > oe) return 0
+    const overlapDays = countWorkingDays(os, oe)
+    const totalDays   = countWorkingDays(ms, me)
+    if (totalDays === 0) return 0
+    return Math.round((overlapDays / totalDays) * capacityH * (a.allocation_percentage / 100) * 10) / 10
   }
+
+  /**
+   * Effective utilisation PERCENTAGE an allocation contributes to a month.
+   * Prorated by working-day overlap — the display % per month for partial months.
+   */
+  const pctForAllocationInMonth = (a: Allocation, monthStr: string): number => {
+    const [y, m]   = monthStr.split('-').map(Number)
+    const ms       = new Date(y, m - 1, 1)
+    const me       = new Date(y, m, 0)
+    const as_      = new Date(a.start_date + 'T00:00:00')
+    const ae       = new Date(a.end_date   + 'T00:00:00')
+    const os       = new Date(Math.max(as_.getTime(), ms.getTime()))
+    const oe       = new Date(Math.min(ae.getTime(),  me.getTime()))
+    if (os > oe) return 0
+    const overlapDays = countWorkingDays(os, oe)
+    const totalDays   = countWorkingDays(ms, me)
+    if (totalDays === 0) return 0
+    return (overlapDays / totalDays) * a.allocation_percentage
+  }
+
+  /**
+   * Whether a given allocation overlaps with a YYYY-MM month at all.
+   */
+  const allocOverlapsMonth = (a: Allocation, monthStr: string): boolean => {
+    const [y, m] = monthStr.split('-').map(Number)
+    const ms     = new Date(y, m - 1, 1)
+    const me     = new Date(y, m, 0)
+    const as_    = new Date(a.start_date + 'T00:00:00')
+    const ae     = new Date(a.end_date   + 'T00:00:00')
+    return as_ <= me && ae >= ms
+  }
+
+  /**
+   * Utilisation summary for a person × month.
+   * Returns all overlapping allocations + summed effective pct.
+   */
+  const utilizationForPersonMonth = (personId: string, month: string) => {
+    const allocs  = s.allocations.filter(a => a.person_id === personId && allocOverlapsMonth(a, month))
+    const totalPct = Math.round(allocs.reduce((sum, a) => sum + pctForAllocationInMonth(a, month), 0))
+    const totalHours = allocs.reduce((sum, a) => sum + hoursForAllocationInMonth(a, month), 0)
+    return { totalPct, totalHours, allocs }
+  }
+
+  /** Total spend (hours × rate) for one allocation across its full date range */
+  const spendForAllocation = (a: Allocation): number => {
+    const rate = rateForPerson(a.person_id)
+    if (rate === 0) return 0
+    // Iterate over every YYYY-MM the allocation spans
+    const [sy, sm] = a.start_date.slice(0, 7).split('-').map(Number)
+    const ae       = new Date(a.end_date + 'T00:00:00')
+    let total = 0
+    let y = sy, m = sm
+    while (true) {
+      const monthStr = `${y}-${String(m).padStart(2, '0')}`
+      const ms       = new Date(y, m - 1, 1)
+      if (ms > ae) break
+      total += hoursForAllocationInMonth(a, monthStr) * rate
+      m++; if (m > 12) { m = 1; y++ }
+      if (y > 2100) break   // safety valve
+    }
+    return total
+  }
+
+  /** Spend for one allocation in a specific YYYY-MM month */
+  const spendForAllocationInMonth = (a: Allocation, monthStr: string): number =>
+    hoursForAllocationInMonth(a, monthStr) * rateForPerson(a.person_id)
 
   const confirmedSpendForProject = (projectId: string) =>
     s.allocations
@@ -414,27 +500,30 @@ export function useDerived() {
       .filter(a => a.project_id === projectId)
       .reduce((sum, a) => sum + spendForAllocation(a), 0)
 
-  const monthsBetween = (start: string, end: string) => {
+  /** List of YYYY-MM strings from start to end (inclusive) */
+  const monthsBetween = (start: string, end: string): string[] => {
     const months: string[] = []
     let [y, m] = start.split('-').map(Number)
     const [ey, em] = end.split('-').map(Number)
     while (y < ey || (y === ey && m <= em)) {
       months.push(`${y}-${String(m).padStart(2, '0')}`)
-      m++
-      if (m > 12) { m = 1; y++ }
+      m++; if (m > 12) { m = 1; y++ }
     }
     return months
   }
 
-  const utilizationForPersonMonth = (personId: string, month: string) => {
-    const allocs = s.allocations.filter(a => a.person_id === personId && a.month === month)
-    const totalPct = allocs.reduce((s, a) => s + a.pct, 0)
-    return { totalPct, allocs }
+  /** Working days in a full calendar month (compatibility shim for Spend/Util) */
+  const workingDaysInMonth = (yyyyMM: string): number => {
+    const [y, mo] = yyyyMM.split('-').map(Number)
+    return countWorkingDays(new Date(y, mo - 1, 1), new Date(y, mo, 0))
   }
 
   return {
     customerById, roleById, personById, projectById,
-    rateForPerson, workingDaysInMonth, spendForAllocation,
+    rateForPerson, workingDaysInMonth,
+    countWorkingDays, hoursForAllocationInMonth, pctForAllocationInMonth,
+    allocOverlapsMonth,
+    spendForAllocation, spendForAllocationInMonth,
     confirmedSpendForProject, totalSpendForProject,
     monthsBetween, utilizationForPersonMonth,
   }

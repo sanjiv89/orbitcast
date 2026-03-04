@@ -191,7 +191,7 @@ function PeriodDropdown({ granularity, offset, onSelect }: { granularity: Granul
 // ── Main component ────────────────────────────────────────────────────────────
 export function Utilization() {
   const { people, roles, projects, customers, allocations } = useStore()
-  const { utilizationForPersonMonth } = useDerived()
+  const { utilizationForPersonMonth, hoursForAllocationInMonth, allocOverlapsMonth } = useDerived()
 
   const [granularity, setGranularity] = useState<Granularity>('month')
   const [offset, setOffset]           = useState(0)
@@ -275,8 +275,8 @@ export function Utilization() {
       let total = 0
       tableMonths.forEach(month => {
         const hrs = allocations
-          .filter(a => a.project_id === project.id && a.month === month)
-          .reduce((s, a) => s + (a.pct / 100) * AVAILABLE_HOURS_PER_MONTH, 0)
+          .filter(a => a.project_id === project.id && allocOverlapsMonth(a, month))
+          .reduce((s, a) => s + hoursForAllocationInMonth(a, month), 0)
         monthlyHours[month] = hrs
         total += hrs
       })
